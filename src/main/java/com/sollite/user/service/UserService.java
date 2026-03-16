@@ -103,4 +103,27 @@ public class UserService {
 
         redisTemplate.delete("refresh:" + userId);
     }
+
+    public TokenRefreshResponse refreshToken(TokenRefreshRequest request) {
+        if (!jwtTokenProvider.validateToken(request.refreshToken())) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+
+        Long userId = jwtTokenProvider.getUserIdFromToken(request.refreshToken());
+
+        String storedToken = redisTemplate.opsForValue().get("refresh:" + userId);
+        if (storedToken == null || !storedToken.equals(request.refreshToken())) {
+            throw new BusinessException(UserErrorCode.INVALID_TOKEN);
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        String newAccessToken = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
+
+        return new TokenRefreshResponse(
+                newAccessToken,
+                jwtTokenProvider.getAccessTokenExpiry() / 1000
+        );
+    }
 }
