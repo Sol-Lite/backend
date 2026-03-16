@@ -50,6 +50,9 @@ class UserServiceTest {
     @Mock
     private LoginAttemptService loginAttemptService;
 
+    @Mock
+    private EmailService emailService;
+
     private SignupRequest createSignupRequest() {
         return new SignupRequest(
                 "test@example.com",
@@ -322,6 +325,59 @@ class UserServiceTest {
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.INVALID_TOKEN));
+        }
+    }
+
+    @Nested
+    @DisplayName("이메일 인증")
+    class EmailVerification {
+
+        @Test
+        @DisplayName("이메일 인증 발송 성공")
+        void sendVerificationEmail_success() {
+            User user = createUser();
+            given(userRepository.findByEmail("test@example.com")).willReturn(Optional.of(user));
+
+            userService.sendVerificationEmail(new EmailVerifyRequest("test@example.com"));
+
+            verify(emailService).sendVerificationEmail(eq("test@example.com"), any());
+        }
+
+        @Test
+        @DisplayName("이메일 인증 발송 실패 - 미등록 이메일")
+        void sendVerificationEmail_fail_notFound() {
+            given(userRepository.findByEmail("unknown@example.com")).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userService.sendVerificationEmail(new EmailVerifyRequest("unknown@example.com")))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.USER_NOT_FOUND));
+        }
+
+        @Test
+        @DisplayName("이메일 인증 확인 성공")
+        void confirmEmail_success() {
+            User user = createUser();
+            given(emailService.verifyToken("valid-token"))
+                    .willReturn(java.util.Map.of("user_id", "1", "email", "test@example.com"));
+            given(userRepository.findById(1L)).willReturn(Optional.of(user));
+
+            userService.confirmEmailVerification(new EmailVerifyConfirmRequest("valid-token"));
+
+            assertThat(user.isEmailVerified()).isTrue();
+            verify(userRepository).save(user);
+        }
+
+        @Test
+        @DisplayName("이메일 인증 확인 실패 - 만료된 토큰")
+        void confirmEmail_fail_expired() {
+            given(emailService.verifyToken("expired-token"))
+                    .willThrow(new BusinessException(UserErrorCode.TOKEN_EXPIRED));
+
+            assertThatThrownBy(() -> userService.confirmEmailVerification(new EmailVerifyConfirmRequest("expired-token")))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
         }
     }
 }

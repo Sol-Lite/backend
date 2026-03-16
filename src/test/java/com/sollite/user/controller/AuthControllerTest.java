@@ -256,4 +256,93 @@ class AuthControllerTest {
                     .andExpect(jsonPath("$.code").value("TOKEN_EXPIRED"));
         }
     }
+
+    @Nested
+    @DisplayName("이메일 인증 발송 API")
+    class EmailVerifySend {
+
+        @Test
+        @DisplayName("이메일 인증 발송 성공 - 200 OK")
+        @WithMockUser
+        void send_success() throws Exception {
+            EmailVerifyRequest request = new EmailVerifyRequest("test@example.com");
+            doNothing().when(userService).sendVerificationEmail(any(EmailVerifyRequest.class));
+
+            mockMvc.perform(post("/api/auth/email/verify/send")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value("인증 메일이 발송되었습니다."))
+                    .andExpect(jsonPath("$.expiresIn").value(1800));
+        }
+
+        @Test
+        @DisplayName("이메일 인증 발송 실패 - 미등록 이메일 404")
+        @WithMockUser
+        void send_fail_notFound() throws Exception {
+            EmailVerifyRequest request = new EmailVerifyRequest("unknown@example.com");
+            doThrow(new BusinessException(UserErrorCode.USER_NOT_FOUND))
+                    .when(userService).sendVerificationEmail(any(EmailVerifyRequest.class));
+
+            mockMvc.perform(post("/api/auth/email/verify/send")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+        }
+
+        @Test
+        @DisplayName("이메일 인증 발송 실패 - 재발송 제한 429")
+        @WithMockUser
+        void send_fail_rateLimit() throws Exception {
+            EmailVerifyRequest request = new EmailVerifyRequest("test@example.com");
+            doThrow(new BusinessException(UserErrorCode.TOO_MANY_REQUESTS))
+                    .when(userService).sendVerificationEmail(any(EmailVerifyRequest.class));
+
+            mockMvc.perform(post("/api/auth/email/verify/send")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"));
+        }
+    }
+
+    @Nested
+    @DisplayName("이메일 인증 확인 API")
+    class EmailVerifyConfirm {
+
+        @Test
+        @DisplayName("이메일 인증 확인 성공 - 200 OK")
+        @WithMockUser
+        void confirm_success() throws Exception {
+            EmailVerifyConfirmRequest request = new EmailVerifyConfirmRequest("valid-token");
+            doNothing().when(userService).confirmEmailVerification(any(EmailVerifyConfirmRequest.class));
+
+            mockMvc.perform(post("/api/auth/email/verify/confirm")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value("이메일 인증이 완료되었습니다."));
+        }
+
+        @Test
+        @DisplayName("이메일 인증 확인 실패 - 만료된 토큰 401")
+        @WithMockUser
+        void confirm_fail_expired() throws Exception {
+            EmailVerifyConfirmRequest request = new EmailVerifyConfirmRequest("expired-token");
+            doThrow(new BusinessException(UserErrorCode.TOKEN_EXPIRED))
+                    .when(userService).confirmEmailVerification(any(EmailVerifyConfirmRequest.class));
+
+            mockMvc.perform(post("/api/auth/email/verify/confirm")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("TOKEN_EXPIRED"));
+        }
+    }
 }
