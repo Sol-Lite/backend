@@ -23,6 +23,7 @@ public class UserService {
     private final JwtTokenProvider jwtTokenProvider;
     private final StringRedisTemplate redisTemplate;
     private final LoginAttemptService loginAttemptService;
+    private final EmailService emailService;
 
     @Transactional
     public SignupResponse signup(SignupRequest request) {
@@ -125,5 +126,24 @@ public class UserService {
                 newAccessToken,
                 jwtTokenProvider.getAccessTokenExpiry() / 1000
         );
+    }
+
+    public void sendVerificationEmail(EmailVerifyRequest request) {
+        User user = userRepository.findByEmail(request.email())
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        emailService.sendVerificationEmail(user.getEmail(), user.getUserId());
+    }
+
+    @Transactional
+    public void confirmEmailVerification(EmailVerifyConfirmRequest request) {
+        java.util.Map<String, String> tokenData = emailService.verifyToken(request.token());
+
+        Long userId = Long.parseLong(tokenData.get("user_id"));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        user.verifyEmail();
+        userRepository.save(user);
     }
 }

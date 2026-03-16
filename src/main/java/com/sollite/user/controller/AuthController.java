@@ -33,6 +33,21 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/email/verify/send")
+    public ResponseEntity<Map<String, Object>> sendVerificationEmail(@Valid @RequestBody EmailVerifyRequest request) {
+        userService.sendVerificationEmail(request);
+        return ResponseEntity.ok(Map.of(
+                "message", "인증 메일이 발송되었습니다.",
+                "expiresIn", 1800
+        ));
+    }
+
+    @PostMapping("/email/verify/confirm")
+    public ResponseEntity<Map<String, String>> confirmEmailVerification(@Valid @RequestBody EmailVerifyConfirmRequest request) {
+        userService.confirmEmailVerification(request);
+        return ResponseEntity.ok(Map.of("message", "이메일 인증이 완료되었습니다."));
+    }
+
     @PostMapping("/token/refresh")
     public ResponseEntity<TokenRefreshResponse> refreshToken(@Valid @RequestBody TokenRefreshRequest request) {
         TokenRefreshResponse response = userService.refreshToken(request);
