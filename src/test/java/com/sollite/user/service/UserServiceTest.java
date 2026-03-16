@@ -445,4 +445,46 @@ class UserServiceTest {
                             .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
         }
     }
+
+    @Nested
+    @DisplayName("비밀번호 변경")
+    class ChangePassword {
+
+        @Test
+        @DisplayName("비밀번호 변경 성공")
+        void changePassword_success() {
+            User user = createUser();
+            given(userRepository.findById(1L)).willReturn(Optional.of(user));
+            given(passwordEncoder.matches("Test1234!", "encodedPassword")).willReturn(true);
+            given(passwordEncoder.encode("NewPass1!")).willReturn("newEncodedPassword");
+
+            userService.changePassword(1L, new PasswordChangeRequest("Test1234!", "NewPass1!", "NewPass1!"));
+
+            verify(userRepository).save(user);
+        }
+
+        @Test
+        @DisplayName("비밀번호 변경 실패 - 현재 비밀번호 불일치")
+        void changePassword_fail_wrongCurrent() {
+            User user = createUser();
+            given(userRepository.findById(1L)).willReturn(Optional.of(user));
+            given(passwordEncoder.matches("Wrong1234!", "encodedPassword")).willReturn(false);
+
+            assertThatThrownBy(() -> userService.changePassword(1L,
+                    new PasswordChangeRequest("Wrong1234!", "NewPass1!", "NewPass1!")))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.INVALID_PASSWORD));
+        }
+
+        @Test
+        @DisplayName("비밀번호 변경 실패 - 새 비밀번호 확인 불일치")
+        void changePassword_fail_mismatch() {
+            assertThatThrownBy(() -> userService.changePassword(1L,
+                    new PasswordChangeRequest("Test1234!", "NewPass1!", "Different1!")))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.PASSWORD_CONFIRM_MISMATCH));
+        }
+    }
 }
