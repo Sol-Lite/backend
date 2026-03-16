@@ -169,6 +169,22 @@ class AuthControllerTest {
         }
 
         @Test
+        @DisplayName("로그인 API 실패 - 이메일 미인증 403")
+        @WithMockUser
+        void login_fail_emailNotVerified() throws Exception {
+            LoginRequest request = new LoginRequest("test@example.com", "Test1234!", false);
+            given(userService.login(any(LoginRequest.class)))
+                    .willThrow(new BusinessException(UserErrorCode.EMAIL_NOT_VERIFIED));
+
+            mockMvc.perform(post("/api/auth/login")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
+        }
+
+        @Test
         @DisplayName("로그인 API 실패 - 유효성 검증 400")
         @WithMockUser
         void login_fail_validation() throws Exception {

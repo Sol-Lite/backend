@@ -72,7 +72,7 @@ public class UserService {
      *
      * @param request 로그인 정보 (이메일, 비밀번호, 자동로그인 여부)
      * @return 접근 토큰, 갱신 토큰, 토큰 유효시간, 사용자 정보
-     * @throws BusinessException 계정 미등록, 비밀번호 오류, 계정 잠금 시
+     * @throws BusinessException 계정 미등록, 이메일 미인증, 비밀번호 오류, 계정 잠금 시
      */
     public LoginResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.email())
@@ -80,6 +80,10 @@ public class UserService {
 
         if (user.isLocked()) {
             throw new BusinessException(UserErrorCode.ACCOUNT_LOCKED);
+        }
+
+        if (!user.isEmailVerified()) {
+            throw new BusinessException(UserErrorCode.EMAIL_NOT_VERIFIED);
         }
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
