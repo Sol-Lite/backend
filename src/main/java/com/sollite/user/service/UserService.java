@@ -135,6 +135,30 @@ public class UserService {
         emailService.sendVerificationEmail(user.getEmail(), user.getUserId());
     }
 
+    public void requestPasswordReset(PasswordResetRequest request) {
+        userRepository.findByEmail(request.email())
+                .ifPresent(user -> emailService.sendPasswordResetEmail(user.getEmail(), user.getUserId()));
+    }
+
+    @Transactional
+    public void confirmPasswordReset(PasswordResetConfirmRequest request) {
+        if (!request.newPassword().equals(request.newPasswordConfirm())) {
+            throw new BusinessException(UserErrorCode.PASSWORD_CONFIRM_MISMATCH);
+        }
+
+        java.util.Map<String, String> tokenData = emailService.verifyPasswordResetToken(request.token());
+
+        Long userId = Long.parseLong(tokenData.get("user_id"));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        user.changePassword(passwordEncoder.encode(request.newPassword()));
+        userRepository.save(user);
+
+        // 모든 세션 강제 로그아웃
+        redisTemplate.delete("refresh:" + userId);
+    }
+
     @Transactional
     public void confirmEmailVerification(EmailVerifyConfirmRequest request) {
         java.util.Map<String, String> tokenData = emailService.verifyToken(request.token());

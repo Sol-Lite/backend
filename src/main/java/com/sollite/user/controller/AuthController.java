@@ -48,6 +48,18 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("message", "이메일 인증이 완료되었습니다."));
     }
 
+    @PostMapping("/password/reset/request")
+    public ResponseEntity<Map<String, String>> requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {
+        userService.requestPasswordReset(request);
+        return ResponseEntity.ok(Map.of("message", "비밀번호 재설정 메일이 발송되었습니다."));
+    }
+
+    @PostMapping("/password/reset/confirm")
+    public ResponseEntity<Map<String, String>> confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
+        userService.confirmPasswordReset(request);
+        return ResponseEntity.ok(Map.of("message", "비밀번호가 변경되었습니다. 다시 로그인해주세요."));
+    }
+
     @PostMapping("/token/refresh")
     public ResponseEntity<TokenRefreshResponse> refreshToken(@Valid @RequestBody TokenRefreshRequest request) {
         TokenRefreshResponse response = userService.refreshToken(request);

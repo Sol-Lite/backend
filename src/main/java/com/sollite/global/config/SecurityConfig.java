@@ -35,6 +35,7 @@ public class SecurityConfig {
                                 "/api/auth/login",
                                 "/api/auth/token/refresh",
                                 "/api/auth/email/verify/**",
+                                "/api/auth/password/reset/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/swagger-resources/**",

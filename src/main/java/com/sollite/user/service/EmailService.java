@@ -76,6 +76,66 @@ public class EmailService {
         }
     }
 
+    public void sendPasswordResetEmail(String email, Long userId) {
+        checkRateLimit(email);
+
+        String token = UUID.randomUUID().toString();
+
+        redisTemplate.opsForHash().putAll("pw_reset:" + token, Map.of(
+                "user_id", String.valueOf(userId),
+                "email", email,
+                "created_at", java.time.LocalDateTime.now().toString()
+        ));
+        redisTemplate.expire("pw_reset:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
+
+        String rateLimitKey = "email_verify_limit:" + email;
+        redisTemplate.opsForValue().increment(rateLimitKey);
+        if (redisTemplate.getExpire(rateLimitKey) == -1) {
+            redisTemplate.expire(rateLimitKey, RATE_LIMIT_TTL, TimeUnit.MINUTES);
+        }
+
+        sendPasswordResetHtmlEmail(email, token);
+    }
+
+    public Map<String, String> verifyPasswordResetToken(String token) {
+        String key = "pw_reset:" + token;
+        Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
+
+        if (data.isEmpty()) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+
+        redisTemplate.delete(key);
+
+        return Map.of(
+                "user_id", (String) data.get("user_id"),
+                "email", (String) data.get("email")
+        );
+    }
+
+    private void sendPasswordResetHtmlEmail(String email, String token) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setTo(email);
+            helper.setSubject("[SOL-Lite] 비밀번호 재설정");
+            helper.setFrom("han97901@gmail.com");
+
+            String resetUrl = "http://localhost:8080/api/auth/password/reset/confirm?token=" + token;
+
+            Context context = new Context();
+            context.setVariable("resetUrl", resetUrl);
+            context.setVariable("token", token);
+            String html = templateEngine.process("password-reset", context);
+
+            helper.setText(html, true);
+            mailSender.send(message);
+        } catch (MessagingException e) {
+            throw new RuntimeException("이메일 발송에 실패했습니다.", e);
+        }
+    }
+
     private void sendHtmlEmail(String email, String token) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
