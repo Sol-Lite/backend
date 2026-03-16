@@ -35,7 +35,7 @@ public class User {
     @Column(nullable = false, length = 20)
     private UserStatus status = UserStatus.ACTIVE;
 
-    @Column(name = "email_verified_yn", nullable = false, length = 1)
+    @Column(name = "email_verified_yn", nullable = false, columnDefinition = "CHAR(1)")
     private String emailVerifiedYn = "N";
 
     @Column(name = "email_verified_at")
@@ -50,13 +50,13 @@ public class User {
     @Column(name = "withdrawn_at")
     private LocalDateTime withdrawnAt;
 
-    @Column(name = "service_terms_agreed_yn", nullable = false, length = 1)
+    @Column(name = "service_terms_agreed_yn", nullable = false, columnDefinition = "CHAR(1)")
     private String serviceTermsAgreedYn = "N";
 
-    @Column(name = "privacy_terms_agreed_yn", nullable = false, length = 1)
+    @Column(name = "privacy_terms_agreed_yn", nullable = false, columnDefinition = "CHAR(1)")
     private String privacyTermsAgreedYn = "N";
 
-    @Column(name = "marketing_agreed_yn", nullable = false, length = 1)
+    @Column(name = "marketing_agreed_yn", nullable = false, columnDefinition = "CHAR(1)")
     private String marketingAgreedYn = "N";
 
     @Column(name = "terms_agreed_at")
