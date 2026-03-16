@@ -5,6 +5,7 @@ import com.sollite.user.exception.UserErrorCode;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -16,6 +17,11 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 이메일 발송을 담당하는 서비스 클래스.
+ * 이메일 인증 메일, 비밀번호 재설정 메일 발송 및 토큰 관리를 처리합니다.
+ * 토큰은 Redis에 저장되고 30분 후 자동으로 만료됩니다.
+ */
 @Service
 @RequiredArgsConstructor
 public class EmailService {
@@ -24,10 +30,21 @@ public class EmailService {
     private final StringRedisTemplate redisTemplate;
     private final TemplateEngine templateEngine;
 
+    @Value("${app.base-url}")
+    private String baseUrl;
+
     private static final long VERIFY_TOKEN_TTL = 30; // 30분
     private static final int RATE_LIMIT = 3;         // 10분 내 3회
     private static final long RATE_LIMIT_TTL = 10;   // 10분
 
+    /**
+     * 이메일 인증 메일을 발송합니다.
+     *
+     * @param email 발송할 이메일 주소
+     * @param userId 사용자 ID
+     * @throws BusinessException 재발송 제한 초과 시
+     * @throws BusinessException 이메일 발송 실패 시
+     */
     public void sendVerificationEmail(String email, Long userId) {
         checkRateLimit(email);
 
@@ -51,6 +68,13 @@ public class EmailService {
         sendHtmlEmail(email, token);
     }
 
+    /**
+     * 이메일 인증 토큰을 검증하고 사용자 정보를 반환합니다. 토큰은 1회용이므로 사용 후 삭제됩니다.
+     *
+     * @param token 이메일 인증 토큰
+     * @return 사용자 ID와 이메일 주소
+     * @throws BusinessException 토큰 만료 또는 유효하지 않은 토큰 시
+     */
     public Map<String, String> verifyToken(String token) {
         String key = "email_verify:" + token;
         Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
@@ -68,6 +92,12 @@ public class EmailService {
         );
     }
 
+    /**
+     * 이메일 발송 재요청 제한을 확인합니다. 10분 내 3회 제한입니다.
+     *
+     * @param email 이메일 주소
+     * @throws BusinessException 재발송 제한 초과 시
+     */
     private void checkRateLimit(String email) {
         String rateLimitKey = "email_verify_limit:" + email;
         String count = redisTemplate.opsForValue().get(rateLimitKey);
@@ -76,6 +106,14 @@ public class EmailService {
         }
     }
 
+    /**
+     * 비밀번호 재설정 메일을 발송합니다.
+     *
+     * @param email 발송할 이메일 주소
+     * @param userId 사용자 ID
+     * @throws BusinessException 재발송 제한 초과 시
+     * @throws BusinessException 이메일 발송 실패 시
+     */
     public void sendPasswordResetEmail(String email, Long userId) {
         checkRateLimit(email);
 
@@ -97,6 +135,13 @@ public class EmailService {
         sendPasswordResetHtmlEmail(email, token);
     }
 
+    /**
+     * 비밀번호 재설정 토큰을 검증하고 사용자 정보를 반환합니다. 토큰은 1회용이므로 사용 후 삭제됩니다.
+     *
+     * @param token 비밀번호 재설정 토큰
+     * @return 사용자 ID와 이메일 주소
+     * @throws BusinessException 토큰 만료 또는 유효하지 않은 토큰 시
+     */
     public Map<String, String> verifyPasswordResetToken(String token) {
         String key = "pw_reset:" + token;
         Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
@@ -122,7 +167,7 @@ public class EmailService {
             helper.setSubject("[SOL-Lite] 비밀번호 재설정");
             helper.setFrom("han97901@gmail.com");
 
-            String resetUrl = "http://localhost:8080/api/auth/password/reset/confirm?token=" + token;
+            String resetUrl = baseUrl + "/api/auth/password/reset/confirm?token=" + token;
 
             Context context = new Context();
             context.setVariable("resetUrl", resetUrl);
@@ -132,7 +177,7 @@ public class EmailService {
             helper.setText(html, true);
             mailSender.send(message);
         } catch (MessagingException e) {
-            throw new RuntimeException("이메일 발송에 실패했습니다.", e);
+            throw new BusinessException(UserErrorCode.EMAIL_SEND_FAILED);
         }
     }
 
@@ -145,7 +190,7 @@ public class EmailService {
             helper.setSubject("[SOL-Lite] 이메일 인증");
             helper.setFrom("han97901@gmail.com");
 
-            String verifyUrl = "http://localhost:8080/api/auth/email/verify/confirm?token=" + token;
+            String verifyUrl = baseUrl + "/api/auth/email/verify/confirm?token=" + token;
 
             Context context = new Context();
             context.setVariable("verifyUrl", verifyUrl);
@@ -155,7 +200,7 @@ public class EmailService {
             helper.setText(html, true);
             mailSender.send(message);
         } catch (MessagingException e) {
-            throw new RuntimeException("이메일 발송에 실패했습니다.", e);
+            throw new BusinessException(UserErrorCode.EMAIL_SEND_FAILED);
         }
     }
 }

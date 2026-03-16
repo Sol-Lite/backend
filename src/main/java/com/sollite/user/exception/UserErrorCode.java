@@ -17,7 +17,8 @@ public enum UserErrorCode implements ErrorCode {
     INVALID_TOKEN(401, "유효하지 않은 토큰입니다"),
     TOKEN_EXPIRED(401, "토큰이 만료되었습니다"),
     TOKEN_ALREADY_USED(400, "이미 사용된 토큰입니다"),
-    TOO_MANY_REQUESTS(429, "요청이 너무 많습니다. 잠시 후 다시 시도해주세요");
+    TOO_MANY_REQUESTS(429, "요청이 너무 많습니다. 잠시 후 다시 시도해주세요"),
+    EMAIL_SEND_FAILED(500, "이메일 발송에 실패했습니다");
 
     private final int status;
     private final String message;
