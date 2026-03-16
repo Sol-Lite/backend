@@ -33,6 +33,9 @@ public class EmailService {
     @Value("${app.base-url}")
     private String baseUrl;
 
+    @Value("${app.mail.from}")
+    private String mailFrom;
+
     private static final long VERIFY_TOKEN_TTL = 30; // 30분
     private static final int RATE_LIMIT = 3;         // 10분 내 3회
     private static final long RATE_LIMIT_TTL = 10;   // 10분
@@ -165,7 +168,7 @@ public class EmailService {
 
             helper.setTo(email);
             helper.setSubject("[SOL-Lite] 비밀번호 재설정");
-            helper.setFrom("han97901@gmail.com");
+            helper.setFrom(mailFrom);
 
             String resetUrl = baseUrl + "/api/auth/password/reset/confirm?token=" + token;
 
@@ -188,7 +191,7 @@ public class EmailService {
 
             helper.setTo(email);
             helper.setSubject("[SOL-Lite] 이메일 인증");
-            helper.setFrom("han97901@gmail.com");
+            helper.setFrom(mailFrom);
 
             String verifyUrl = baseUrl + "/api/auth/email/verify/confirm?token=" + token;
 

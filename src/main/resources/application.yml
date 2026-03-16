@@ -79,6 +79,8 @@ jwt:
 # ── Application URLs ──
 app:
   base-url: ${APP_BASE_URL:http://localhost:8080}
+  mail:
+    from: ${MAIL_FROM:han97901@gmail.com}
 
 # ── Logging ──
 logging:
