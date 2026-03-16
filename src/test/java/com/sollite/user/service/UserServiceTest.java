@@ -226,4 +226,49 @@ class UserServiceTest {
             assertThat(user.isLocked()).isTrue();
         }
     }
+
+    @Nested
+    @DisplayName("로그아웃")
+    class Logout {
+
+        @Test
+        @DisplayName("로그아웃 성공")
+        void logout_success() {
+            given(redisTemplate.opsForValue()).willReturn(valueOperations);
+            given(valueOperations.get("refresh:1")).willReturn("valid-refresh-token");
+
+            LogoutRequest request = new LogoutRequest("valid-refresh-token");
+            userService.logout(1L, request);
+
+            verify(redisTemplate).delete("refresh:1");
+        }
+
+        @Test
+        @DisplayName("로그아웃 실패 - 유효하지 않은 리프레시 토큰")
+        void logout_fail_invalidToken() {
+            given(redisTemplate.opsForValue()).willReturn(valueOperations);
+            given(valueOperations.get("refresh:1")).willReturn("stored-token");
+
+            LogoutRequest request = new LogoutRequest("wrong-token");
+
+            assertThatThrownBy(() -> userService.logout(1L, request))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.INVALID_TOKEN));
+        }
+
+        @Test
+        @DisplayName("로그아웃 실패 - 이미 로그아웃된 상태")
+        void logout_fail_alreadyLoggedOut() {
+            given(redisTemplate.opsForValue()).willReturn(valueOperations);
+            given(valueOperations.get("refresh:1")).willReturn(null);
+
+            LogoutRequest request = new LogoutRequest("some-token");
+
+            assertThatThrownBy(() -> userService.logout(1L, request))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.INVALID_TOKEN));
+        }
+    }
 }

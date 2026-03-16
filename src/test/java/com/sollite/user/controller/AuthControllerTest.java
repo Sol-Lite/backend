@@ -3,6 +3,7 @@ package com.sollite.user.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.global.exception.GlobalExceptionHandler;
+import com.sollite.global.security.JwtTokenProvider;
 import com.sollite.user.dto.*;
 import com.sollite.user.exception.UserErrorCode;
 import com.sollite.user.service.UserService;
@@ -19,6 +20,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -35,6 +38,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private UserService userService;
+
+    @MockitoBean
+    private JwtTokenProvider jwtTokenProvider;
 
     @Nested
     @DisplayName("회원가입 API")
@@ -174,6 +180,42 @@ class AuthControllerTest {
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+    }
+
+    @Nested
+    @DisplayName("로그아웃 API")
+    class Logout {
+
+        @Test
+        @DisplayName("로그아웃 API 성공 - 200 OK")
+        @WithMockUser(username = "1")
+        void logout_success() throws Exception {
+            LogoutRequest request = new LogoutRequest("valid-refresh-token");
+            doNothing().when(userService).logout(any(), any(LogoutRequest.class));
+
+            mockMvc.perform(post("/api/auth/logout")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value("로그아웃 되었습니다."));
+        }
+
+        @Test
+        @DisplayName("로그아웃 API 실패 - 유효하지 않은 토큰 401")
+        @WithMockUser(username = "1")
+        void logout_fail_invalidToken() throws Exception {
+            LogoutRequest request = new LogoutRequest("invalid-token");
+            doThrow(new BusinessException(UserErrorCode.INVALID_TOKEN))
+                    .when(userService).logout(any(), any(LogoutRequest.class));
+
+            mockMvc.perform(post("/api/auth/logout")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
         }
     }
 }
