@@ -380,4 +380,69 @@ class UserServiceTest {
                             .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
         }
     }
+
+    @Nested
+    @DisplayName("비밀번호 재설정")
+    class PasswordReset {
+
+        @Test
+        @DisplayName("비밀번호 재설정 요청 성공 - 등록된 이메일")
+        void requestPasswordReset_success() {
+            User user = createUser();
+            given(userRepository.findByEmail("test@example.com")).willReturn(Optional.of(user));
+
+            userService.requestPasswordReset(new PasswordResetRequest("test@example.com"));
+
+            verify(emailService).sendPasswordResetEmail(eq("test@example.com"), any());
+        }
+
+        @Test
+        @DisplayName("비밀번호 재설정 요청 - 미등록 이메일도 정상 응답")
+        void requestPasswordReset_unknownEmail_noException() {
+            given(userRepository.findByEmail("unknown@example.com")).willReturn(Optional.empty());
+
+            userService.requestPasswordReset(new PasswordResetRequest("unknown@example.com"));
+
+            verify(emailService, never()).sendPasswordResetEmail(any(), any());
+        }
+
+        @Test
+        @DisplayName("비밀번호 재설정 확인 성공")
+        void confirmPasswordReset_success() {
+            User user = createUser();
+            given(emailService.verifyPasswordResetToken("valid-token"))
+                    .willReturn(java.util.Map.of("user_id", "1", "email", "test@example.com"));
+            given(userRepository.findById(1L)).willReturn(Optional.of(user));
+            given(passwordEncoder.encode("NewPass1!")).willReturn("newEncodedPassword");
+            given(redisTemplate.delete("refresh:1")).willReturn(true);
+
+            userService.confirmPasswordReset(new PasswordResetConfirmRequest("valid-token", "NewPass1!", "NewPass1!"));
+
+            verify(userRepository).save(user);
+            verify(redisTemplate).delete("refresh:1");
+        }
+
+        @Test
+        @DisplayName("비밀번호 재설정 확인 실패 - 비밀번호 확인 불일치")
+        void confirmPasswordReset_fail_mismatch() {
+            assertThatThrownBy(() -> userService.confirmPasswordReset(
+                    new PasswordResetConfirmRequest("valid-token", "NewPass1!", "Different1!")))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.PASSWORD_CONFIRM_MISMATCH));
+        }
+
+        @Test
+        @DisplayName("비밀번호 재설정 확인 실패 - 만료된 토큰")
+        void confirmPasswordReset_fail_expired() {
+            given(emailService.verifyPasswordResetToken("expired-token"))
+                    .willThrow(new BusinessException(UserErrorCode.TOKEN_EXPIRED));
+
+            assertThatThrownBy(() -> userService.confirmPasswordReset(
+                    new PasswordResetConfirmRequest("expired-token", "NewPass1!", "NewPass1!")))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
+        }
+    }
 }

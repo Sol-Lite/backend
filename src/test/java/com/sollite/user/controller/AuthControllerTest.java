@@ -345,4 +345,95 @@ class AuthControllerTest {
                     .andExpect(jsonPath("$.code").value("TOKEN_EXPIRED"));
         }
     }
+
+    @Nested
+    @DisplayName("비밀번호 재설정 요청 API")
+    class PasswordResetRequest {
+
+        @Test
+        @DisplayName("비밀번호 재설정 요청 성공 - 200 OK")
+        @WithMockUser
+        void request_success() throws Exception {
+            com.sollite.user.dto.PasswordResetRequest request =
+                    new com.sollite.user.dto.PasswordResetRequest("test@example.com");
+            doNothing().when(userService).requestPasswordReset(any(com.sollite.user.dto.PasswordResetRequest.class));
+
+            mockMvc.perform(post("/api/auth/password/reset/request")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value("비밀번호 재설정 메일이 발송되었습니다."));
+        }
+
+        @Test
+        @DisplayName("비밀번호 재설정 요청 실패 - 유효성 검증 400")
+        @WithMockUser
+        void request_fail_validation() throws Exception {
+            com.sollite.user.dto.PasswordResetRequest request =
+                    new com.sollite.user.dto.PasswordResetRequest("");
+
+            mockMvc.perform(post("/api/auth/password/reset/request")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
+    }
+
+    @Nested
+    @DisplayName("비밀번호 재설정 확인 API")
+    class PasswordResetConfirm {
+
+        @Test
+        @DisplayName("비밀번호 재설정 확인 성공 - 200 OK")
+        @WithMockUser
+        void confirm_success() throws Exception {
+            PasswordResetConfirmRequest request =
+                    new PasswordResetConfirmRequest("valid-token", "NewPass1!", "NewPass1!");
+            doNothing().when(userService).confirmPasswordReset(any(PasswordResetConfirmRequest.class));
+
+            mockMvc.perform(post("/api/auth/password/reset/confirm")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value("비밀번호가 변경되었습니다. 다시 로그인해주세요."));
+        }
+
+        @Test
+        @DisplayName("비밀번호 재설정 확인 실패 - 비밀번호 불일치 400")
+        @WithMockUser
+        void confirm_fail_mismatch() throws Exception {
+            PasswordResetConfirmRequest request =
+                    new PasswordResetConfirmRequest("valid-token", "NewPass1!", "Different1!");
+            doThrow(new BusinessException(UserErrorCode.PASSWORD_CONFIRM_MISMATCH))
+                    .when(userService).confirmPasswordReset(any(PasswordResetConfirmRequest.class));
+
+            mockMvc.perform(post("/api/auth/password/reset/confirm")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("PASSWORD_CONFIRM_MISMATCH"));
+        }
+
+        @Test
+        @DisplayName("비밀번호 재설정 확인 실패 - 만료된 토큰 401")
+        @WithMockUser
+        void confirm_fail_expired() throws Exception {
+            PasswordResetConfirmRequest request =
+                    new PasswordResetConfirmRequest("expired-token", "NewPass1!", "NewPass1!");
+            doThrow(new BusinessException(UserErrorCode.TOKEN_EXPIRED))
+                    .when(userService).confirmPasswordReset(any(PasswordResetConfirmRequest.class));
+
+            mockMvc.perform(post("/api/auth/password/reset/confirm")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("TOKEN_EXPIRED"));
+        }
+    }
 }
