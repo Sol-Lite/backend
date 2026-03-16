@@ -3,11 +3,11 @@ package com.sollite.user.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.global.exception.GlobalExceptionHandler;
-import com.sollite.user.dto.SignupRequest;
-import com.sollite.user.dto.SignupResponse;
+import com.sollite.user.dto.*;
 import com.sollite.user.exception.UserErrorCode;
 import com.sollite.user.service.UserService;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -36,71 +36,144 @@ class AuthControllerTest {
     @MockitoBean
     private UserService userService;
 
-    @Test
-    @DisplayName("회원가입 API 성공 - 201 Created")
-    @WithMockUser
-    void signup_success() throws Exception {
-        // given
-        SignupRequest request = new SignupRequest(
-                "test@example.com", "Test1234!", "Test1234!",
-                "홍길동", "010-1234-5678", true, true, false
-        );
-        SignupResponse response = new SignupResponse(
-                1L, "test@example.com", "홍길동",
-                "회원가입이 완료되었습니다. 이메일 인증을 진행해주세요."
-        );
-        given(userService.signup(any(SignupRequest.class))).willReturn(response);
+    @Nested
+    @DisplayName("회원가입 API")
+    class Signup {
 
-        // when & then
-        mockMvc.perform(post("/api/auth/signup")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.email").value("test@example.com"))
-                .andExpect(jsonPath("$.name").value("홍길동"))
-                .andExpect(jsonPath("$.message").exists());
+        @Test
+        @DisplayName("회원가입 API 성공 - 201 Created")
+        @WithMockUser
+        void signup_success() throws Exception {
+            SignupRequest request = new SignupRequest(
+                    "test@example.com", "Test1234!", "Test1234!",
+                    "홍길동", "010-1234-5678", true, true, false
+            );
+            SignupResponse response = new SignupResponse(
+                    1L, "test@example.com", "홍길동",
+                    "회원가입이 완료되었습니다. 이메일 인증을 진행해주세요."
+            );
+            given(userService.signup(any(SignupRequest.class))).willReturn(response);
+
+            mockMvc.perform(post("/api/auth/signup")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.email").value("test@example.com"))
+                    .andExpect(jsonPath("$.name").value("홍길동"))
+                    .andExpect(jsonPath("$.message").exists());
+        }
+
+        @Test
+        @DisplayName("회원가입 API 실패 - 이메일 중복 409")
+        @WithMockUser
+        void signup_fail_duplicateEmail() throws Exception {
+            SignupRequest request = new SignupRequest(
+                    "test@example.com", "Test1234!", "Test1234!",
+                    "홍길동", null, true, true, false
+            );
+            given(userService.signup(any(SignupRequest.class)))
+                    .willThrow(new BusinessException(UserErrorCode.DUPLICATE_EMAIL));
+
+            mockMvc.perform(post("/api/auth/signup")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("DUPLICATE_EMAIL"))
+                    .andExpect(jsonPath("$.message").value("이미 등록된 이메일입니다"));
+        }
+
+        @Test
+        @DisplayName("회원가입 API 실패 - 유효성 검증 400")
+        @WithMockUser
+        void signup_fail_validation() throws Exception {
+            SignupRequest request = new SignupRequest(
+                    "", "short", "short",
+                    "", null, false, false, false
+            );
+
+            mockMvc.perform(post("/api/auth/signup")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+                    .andExpect(jsonPath("$.errors").exists());
+        }
     }
 
-    @Test
-    @DisplayName("회원가입 API 실패 - 이메일 중복 409")
-    @WithMockUser
-    void signup_fail_duplicateEmail() throws Exception {
-        // given
-        SignupRequest request = new SignupRequest(
-                "test@example.com", "Test1234!", "Test1234!",
-                "홍길동", null, true, true, false
-        );
-        given(userService.signup(any(SignupRequest.class)))
-                .willThrow(new BusinessException(UserErrorCode.DUPLICATE_EMAIL));
+    @Nested
+    @DisplayName("로그인 API")
+    class Login {
 
-        // when & then
-        mockMvc.perform(post("/api/auth/signup")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("DUPLICATE_EMAIL"))
-                .andExpect(jsonPath("$.message").value("이미 등록된 이메일입니다"));
-    }
+        @Test
+        @DisplayName("로그인 API 성공 - 200 OK")
+        @WithMockUser
+        void login_success() throws Exception {
+            LoginRequest request = new LoginRequest("test@example.com", "Test1234!", false);
+            LoginResponse response = new LoginResponse(
+                    "access-token", "refresh-token", 1800,
+                    new LoginResponse.UserInfo(1L, "test@example.com", "홍길동")
+            );
+            given(userService.login(any(LoginRequest.class))).willReturn(response);
 
-    @Test
-    @DisplayName("회원가입 API 실패 - 유효성 검증 400")
-    @WithMockUser
-    void signup_fail_validation() throws Exception {
-        // given - 이메일 빈값, 비밀번호 규칙 미충족
-        SignupRequest request = new SignupRequest(
-                "", "short", "short",
-                "", null, false, false, false
-        );
+            mockMvc.perform(post("/api/auth/login")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.accessToken").value("access-token"))
+                    .andExpect(jsonPath("$.refreshToken").value("refresh-token"))
+                    .andExpect(jsonPath("$.expiresIn").value(1800))
+                    .andExpect(jsonPath("$.user.email").value("test@example.com"))
+                    .andExpect(jsonPath("$.user.name").value("홍길동"));
+        }
 
-        // when & then
-        mockMvc.perform(post("/api/auth/signup")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
-                .andExpect(jsonPath("$.errors").exists());
+        @Test
+        @DisplayName("로그인 API 실패 - 비밀번호 불일치 401")
+        @WithMockUser
+        void login_fail_invalidPassword() throws Exception {
+            LoginRequest request = new LoginRequest("test@example.com", "Wrong1234!", false);
+            given(userService.login(any(LoginRequest.class)))
+                    .willThrow(new BusinessException(UserErrorCode.INVALID_PASSWORD));
+
+            mockMvc.perform(post("/api/auth/login")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("INVALID_PASSWORD"));
+        }
+
+        @Test
+        @DisplayName("로그인 API 실패 - 계정 잠금 423")
+        @WithMockUser
+        void login_fail_accountLocked() throws Exception {
+            LoginRequest request = new LoginRequest("test@example.com", "Test1234!", false);
+            given(userService.login(any(LoginRequest.class)))
+                    .willThrow(new BusinessException(UserErrorCode.ACCOUNT_LOCKED));
+
+            mockMvc.perform(post("/api/auth/login")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isLocked())
+                    .andExpect(jsonPath("$.code").value("ACCOUNT_LOCKED"));
+        }
+
+        @Test
+        @DisplayName("로그인 API 실패 - 유효성 검증 400")
+        @WithMockUser
+        void login_fail_validation() throws Exception {
+            LoginRequest request = new LoginRequest("", "", null);
+
+            mockMvc.perform(post("/api/auth/login")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+        }
     }
 }
