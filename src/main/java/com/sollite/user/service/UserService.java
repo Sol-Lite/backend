@@ -94,4 +94,13 @@ public class UserService {
         );
     }
 
+    public void logout(Long userId, LogoutRequest request) {
+        String storedToken = redisTemplate.opsForValue().get("refresh:" + userId);
+
+        if (storedToken == null || !storedToken.equals(request.refreshToken())) {
+            throw new BusinessException(UserErrorCode.INVALID_TOKEN);
+        }
+
+        redisTemplate.delete("refresh:" + userId);
+    }
 }
