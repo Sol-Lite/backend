@@ -1,7 +1,6 @@
 package com.sollite.user.controller;
 
-import com.sollite.user.dto.SignupRequest;
-import com.sollite.user.dto.SignupResponse;
+import com.sollite.user.dto.*;
 import com.sollite.user.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -23,5 +22,11 @@ public class AuthController {
     public ResponseEntity<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {
         SignupResponse response = userService.signup(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+        LoginResponse response = userService.login(request);
+        return ResponseEntity.ok(response);
     }
 }
