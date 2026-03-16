@@ -205,7 +205,6 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
         user.changePassword(passwordEncoder.encode(request.newPassword()));
-        userRepository.save(user);
 
         // 모든 세션 강제 로그아웃
         redisTemplate.delete("refresh:" + userId);
@@ -232,7 +231,6 @@ public class UserService {
         }
 
         user.changePassword(passwordEncoder.encode(request.newPassword()));
-        userRepository.save(user);
     }
 
     /**
@@ -271,7 +269,6 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
         user.updateProfile(request.name(), request.phone());
-        userRepository.save(user);
 
         return new UserProfileResponse(
                 user.getUserId(),
@@ -298,6 +295,5 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
         user.verifyEmail();
-        userRepository.save(user);
     }
 }

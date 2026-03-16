@@ -27,7 +27,6 @@ public class LoginAttemptService {
     @Transactional
     public void recordFailure(User user) {
         user.incrementLoginFailCount();
-        userRepository.save(user);
     }
 
     /**
@@ -39,6 +38,5 @@ public class LoginAttemptService {
     @Transactional
     public void recordSuccess(User user) {
         user.resetLoginFailCount();
-        userRepository.save(user);
     }
 }
