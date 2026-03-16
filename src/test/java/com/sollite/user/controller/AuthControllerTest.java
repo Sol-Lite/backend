@@ -218,4 +218,42 @@ class AuthControllerTest {
                     .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
         }
     }
+
+    @Nested
+    @DisplayName("토큰 갱신 API")
+    class RefreshToken {
+
+        @Test
+        @DisplayName("토큰 갱신 API 성공 - 200 OK")
+        @WithMockUser
+        void refreshToken_success() throws Exception {
+            TokenRefreshRequest request = new TokenRefreshRequest("valid-refresh-token");
+            TokenRefreshResponse response = new TokenRefreshResponse("new-access-token", 1800);
+            given(userService.refreshToken(any(TokenRefreshRequest.class))).willReturn(response);
+
+            mockMvc.perform(post("/api/auth/token/refresh")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.accessToken").value("new-access-token"))
+                    .andExpect(jsonPath("$.expiresIn").value(1800));
+        }
+
+        @Test
+        @DisplayName("토큰 갱신 API 실패 - 만료된 토큰 401")
+        @WithMockUser
+        void refreshToken_fail_expired() throws Exception {
+            TokenRefreshRequest request = new TokenRefreshRequest("expired-token");
+            given(userService.refreshToken(any(TokenRefreshRequest.class)))
+                    .willThrow(new BusinessException(UserErrorCode.TOKEN_EXPIRED));
+
+            mockMvc.perform(post("/api/auth/token/refresh")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("TOKEN_EXPIRED"));
+        }
+    }
 }

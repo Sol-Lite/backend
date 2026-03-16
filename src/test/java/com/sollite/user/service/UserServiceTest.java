@@ -271,4 +271,57 @@ class UserServiceTest {
                             .isEqualTo(UserErrorCode.INVALID_TOKEN));
         }
     }
+
+    @Nested
+    @DisplayName("토큰 갱신")
+    class RefreshToken {
+
+        @Test
+        @DisplayName("토큰 갱신 성공")
+        void refreshToken_success() {
+            User user = createUser();
+            TokenRefreshRequest request = new TokenRefreshRequest("valid-refresh-token");
+
+            given(jwtTokenProvider.validateToken("valid-refresh-token")).willReturn(true);
+            given(jwtTokenProvider.getUserIdFromToken("valid-refresh-token")).willReturn(1L);
+            given(redisTemplate.opsForValue()).willReturn(valueOperations);
+            given(valueOperations.get("refresh:1")).willReturn("valid-refresh-token");
+            given(userRepository.findById(1L)).willReturn(Optional.of(user));
+            given(jwtTokenProvider.createAccessToken(any(), eq("test@example.com"))).willReturn("new-access-token");
+            given(jwtTokenProvider.getAccessTokenExpiry()).willReturn(1800000L);
+
+            TokenRefreshResponse response = userService.refreshToken(request);
+
+            assertThat(response.accessToken()).isEqualTo("new-access-token");
+            assertThat(response.expiresIn()).isEqualTo(1800);
+        }
+
+        @Test
+        @DisplayName("토큰 갱신 실패 - 만료된 리프레시 토큰")
+        void refreshToken_fail_expired() {
+            TokenRefreshRequest request = new TokenRefreshRequest("expired-token");
+            given(jwtTokenProvider.validateToken("expired-token")).willReturn(false);
+
+            assertThatThrownBy(() -> userService.refreshToken(request))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
+        }
+
+        @Test
+        @DisplayName("토큰 갱신 실패 - Redis에 없는 토큰")
+        void refreshToken_fail_notInRedis() {
+            TokenRefreshRequest request = new TokenRefreshRequest("valid-but-revoked");
+
+            given(jwtTokenProvider.validateToken("valid-but-revoked")).willReturn(true);
+            given(jwtTokenProvider.getUserIdFromToken("valid-but-revoked")).willReturn(1L);
+            given(redisTemplate.opsForValue()).willReturn(valueOperations);
+            given(valueOperations.get("refresh:1")).willReturn(null);
+
+            assertThatThrownBy(() -> userService.refreshToken(request))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.INVALID_TOKEN));
+        }
+    }
 }
