@@ -22,6 +22,9 @@ public class JwtTokenProvider {
     @Value("${jwt.refresh-token-expiry}")
     private long refreshTokenExpiry;
 
+    @Value("${jwt.auto-login-token-expiry}")
+    private long autoLoginTokenExpiry;
+
     private SecretKey key;
 
     /**
@@ -113,6 +116,16 @@ public class JwtTokenProvider {
      */
     public long getRefreshTokenExpiry() {
         return refreshTokenExpiry;
+    }
+
+    /**
+     * 자동로그인 여부에 따라 Refresh Token 유효시간(밀리초)을 반환한다.
+     *
+     * @param autoLogin 자동로그인 여부
+     * @return 자동로그인 ON: 30일, OFF: 7일
+     */
+    public long getRefreshTokenExpiry(boolean autoLogin) {
+        return autoLogin ? autoLoginTokenExpiry : refreshTokenExpiry;
     }
 
     /**

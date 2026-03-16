@@ -99,10 +99,11 @@ public class UserService {
         String accessToken = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
         String refreshToken = jwtTokenProvider.createRefreshToken(user.getUserId());
 
+        long refreshTokenExpiry = jwtTokenProvider.getRefreshTokenExpiry(request.isAutoLogin());
         redisTemplate.opsForValue().set(
                 "refresh:" + user.getUserId(),
                 refreshToken,
-                jwtTokenProvider.getRefreshTokenExpiry(),
+                refreshTokenExpiry,
                 TimeUnit.MILLISECONDS
         );
 
