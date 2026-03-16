@@ -160,6 +160,23 @@ public class UserService {
     }
 
     @Transactional
+    public void changePassword(Long userId, PasswordChangeRequest request) {
+        if (!request.newPassword().equals(request.newPasswordConfirm())) {
+            throw new BusinessException(UserErrorCode.PASSWORD_CONFIRM_MISMATCH);
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new BusinessException(UserErrorCode.INVALID_PASSWORD);
+        }
+
+        user.changePassword(passwordEncoder.encode(request.newPassword()));
+        userRepository.save(user);
+    }
+
+    @Transactional
     public void confirmEmailVerification(EmailVerifyConfirmRequest request) {
         java.util.Map<String, String> tokenData = emailService.verifyToken(request.token());
 
