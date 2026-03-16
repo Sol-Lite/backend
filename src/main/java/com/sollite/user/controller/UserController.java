@@ -1,5 +1,6 @@
 package com.sollite.user.controller;
 
+import com.sollite.global.util.AuthUtil;
 import com.sollite.user.dto.*;
 import com.sollite.user.service.UserService;
 import jakarta.validation.Valid;
@@ -27,7 +28,7 @@ public class UserController {
      */
     @GetMapping
     public ResponseEntity<UserProfileResponse> getProfile(Authentication authentication) {
-        Long userId = getUserId(authentication);
+        Long userId = AuthUtil.getUserId(authentication);
         UserProfileResponse response = userService.getProfile(userId);
         return ResponseEntity.ok(response);
     }
@@ -42,7 +43,7 @@ public class UserController {
     @PatchMapping
     public ResponseEntity<ProfileUpdateResponse> updateProfile(Authentication authentication,
                                                                @Valid @RequestBody ProfileUpdateRequest request) {
-        Long userId = getUserId(authentication);
+        Long userId = AuthUtil.getUserId(authentication);
         UserProfileResponse user = userService.updateProfile(userId, request);
         return ResponseEntity.ok(new ProfileUpdateResponse(
                 "정보가 수정되었습니다.",
@@ -61,16 +62,9 @@ public class UserController {
     @PatchMapping("/password")
     public ResponseEntity<MessageResponse> changePassword(Authentication authentication,
                                                           @Valid @RequestBody PasswordChangeRequest request) {
-        Long userId = getUserId(authentication);
+        Long userId = AuthUtil.getUserId(authentication);
         userService.changePassword(userId, request);
         return ResponseEntity.ok(new MessageResponse("비밀번호가 변경되었습니다."));
     }
 
-    private Long getUserId(Authentication authentication) {
-        Object principal = authentication.getPrincipal();
-        if (principal instanceof Long id) {
-            return id;
-        }
-        return Long.parseLong(authentication.getName());
-    }
 }

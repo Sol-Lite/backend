@@ -1,6 +1,7 @@
 package com.sollite.user.controller;
 
 import com.sollite.global.exception.BusinessException;
+import com.sollite.global.util.AuthUtil;
 import com.sollite.user.dto.*;
 import com.sollite.user.service.UserService;
 import jakarta.validation.Valid;
@@ -129,17 +130,8 @@ public class AuthController {
     @PostMapping("/logout")
     public ResponseEntity<MessageResponse> logout(Authentication authentication,
                                                    @Valid @RequestBody LogoutRequest request) {
-        Long userId = getUserId(authentication);
+        Long userId = AuthUtil.getUserId(authentication);
         userService.logout(userId, request);
         return ResponseEntity.ok(new MessageResponse("로그아웃 되었습니다."));
-    }
-
-    private Long getUserId(Authentication authentication) {
-        Object principal = authentication.getPrincipal();
-        if (principal instanceof Long id) {
-            return id;
-        }
-        // JwtAuthenticationFilter에서는 Long, @WithMockUser에서는 getName()
-        return Long.parseLong(authentication.getName());
     }
 }
