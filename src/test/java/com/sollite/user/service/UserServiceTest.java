@@ -487,4 +487,58 @@ class UserServiceTest {
                             .isEqualTo(UserErrorCode.PASSWORD_CONFIRM_MISMATCH));
         }
     }
+
+    @Nested
+    @DisplayName("프로필")
+    class Profile {
+
+        @Test
+        @DisplayName("내 정보 조회 성공")
+        void getProfile_success() {
+            User user = createUser();
+            given(userRepository.findById(1L)).willReturn(Optional.of(user));
+
+            UserProfileResponse response = userService.getProfile(1L);
+
+            assertThat(response.email()).isEqualTo("test@example.com");
+            assertThat(response.name()).isEqualTo("홍길동");
+            assertThat(response.phone()).isEqualTo("010-1234-5678");
+        }
+
+        @Test
+        @DisplayName("내 정보 조회 실패 - 존재하지 않는 사용자")
+        void getProfile_fail_notFound() {
+            given(userRepository.findById(999L)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userService.getProfile(999L))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.USER_NOT_FOUND));
+        }
+
+        @Test
+        @DisplayName("내 정보 수정 성공")
+        void updateProfile_success() {
+            User user = createUser();
+            given(userRepository.findById(1L)).willReturn(Optional.of(user));
+
+            UserProfileResponse response = userService.updateProfile(1L, new ProfileUpdateRequest("김길동", "010-9876-5432"));
+
+            assertThat(response.name()).isEqualTo("김길동");
+            assertThat(response.phone()).isEqualTo("010-9876-5432");
+            verify(userRepository).save(user);
+        }
+
+        @Test
+        @DisplayName("내 정보 수정 - 이름만 변경")
+        void updateProfile_nameOnly() {
+            User user = createUser();
+            given(userRepository.findById(1L)).willReturn(Optional.of(user));
+
+            UserProfileResponse response = userService.updateProfile(1L, new ProfileUpdateRequest("김길동", null));
+
+            assertThat(response.name()).isEqualTo("김길동");
+            assertThat(response.phone()).isEqualTo("010-1234-5678");
+        }
+    }
 }
