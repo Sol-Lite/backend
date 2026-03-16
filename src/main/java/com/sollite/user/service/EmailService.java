@@ -9,6 +9,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.thymeleaf.TemplateEngine;
+import org.thymeleaf.context.Context;
 
 import java.util.Map;
 import java.util.UUID;
@@ -20,6 +22,7 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
     private final StringRedisTemplate redisTemplate;
+    private final TemplateEngine templateEngine;
 
     private static final long VERIFY_TOKEN_TTL = 30; // 30분
     private static final int RATE_LIMIT = 3;         // 10분 내 3회
@@ -83,48 +86,16 @@ public class EmailService {
             helper.setFrom("han97901@gmail.com");
 
             String verifyUrl = "http://localhost:8080/api/auth/email/verify/confirm?token=" + token;
-            String html = buildVerificationHtml(verifyUrl, token);
-            helper.setText(html, true);
 
+            Context context = new Context();
+            context.setVariable("verifyUrl", verifyUrl);
+            context.setVariable("token", token);
+            String html = templateEngine.process("email-verify", context);
+
+            helper.setText(html, true);
             mailSender.send(message);
         } catch (MessagingException e) {
             throw new RuntimeException("이메일 발송에 실패했습니다.", e);
         }
-    }
-
-    private String buildVerificationHtml(String verifyUrl, String token) {
-        return """
-                <!DOCTYPE html>
-                <html>
-                <body style="margin:0; padding:0; background-color:#f5f5f5; font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
-                  <div style="max-width:600px; margin:40px auto; background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
-                    <div style="background:#0046FF; padding:32px; text-align:center;">
-                      <h1 style="color:#ffffff; margin:0; font-size:24px;">SOL-Lite</h1>
-                    </div>
-                    <div style="padding:40px 32px;">
-                      <h2 style="color:#333; margin:0 0 16px;">이메일 인증</h2>
-                      <p style="color:#666; font-size:15px; line-height:1.6;">
-                        SOL-Lite 회원가입을 환영합니다!<br>
-                        아래 버튼을 클릭하여 이메일 인증을 완료해주세요.
-                      </p>
-                      <div style="text-align:center; margin:32px 0;">
-                        <a href="%s" style="display:inline-block; background:#0046FF; color:#ffffff; text-decoration:none; padding:14px 40px; border-radius:8px; font-size:16px; font-weight:bold;">
-                          이메일 인증하기
-                        </a>
-                      </div>
-                      <p style="color:#999; font-size:13px; line-height:1.5;">
-                        버튼이 작동하지 않으면 아래 인증 코드를 직접 입력해주세요.<br>
-                        <strong style="color:#333;">%s</strong>
-                      </p>
-                      <hr style="border:none; border-top:1px solid #eee; margin:24px 0;">
-                      <p style="color:#999; font-size:12px;">
-                        이 인증 링크는 30분간 유효합니다.<br>
-                        본인이 요청하지 않은 경우 이 메일을 무시해주세요.
-                      </p>
-                    </div>
-                  </div>
-                </body>
-                </html>
-                """.formatted(verifyUrl, token);
     }
 }
