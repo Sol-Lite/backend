@@ -1,15 +1,14 @@
 package com.sollite.user.controller;
 
 import com.sollite.user.dto.PasswordChangeRequest;
+import com.sollite.user.dto.ProfileUpdateRequest;
+import com.sollite.user.dto.UserProfileResponse;
 import com.sollite.user.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
@@ -19,6 +18,24 @@ import java.util.Map;
 public class UserController {
 
     private final UserService userService;
+
+    @GetMapping
+    public ResponseEntity<UserProfileResponse> getProfile(Authentication authentication) {
+        Long userId = getUserId(authentication);
+        UserProfileResponse response = userService.getProfile(userId);
+        return ResponseEntity.ok(response);
+    }
+
+    @PatchMapping
+    public ResponseEntity<Map<String, Object>> updateProfile(Authentication authentication,
+                                                              @Valid @RequestBody ProfileUpdateRequest request) {
+        Long userId = getUserId(authentication);
+        UserProfileResponse user = userService.updateProfile(userId, request);
+        return ResponseEntity.ok(Map.of(
+                "message", "정보가 수정되었습니다.",
+                "user", user
+        ));
+    }
 
     @PatchMapping("/password")
     public ResponseEntity<Map<String, String>> changePassword(Authentication authentication,

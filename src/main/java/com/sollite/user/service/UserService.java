@@ -176,6 +176,39 @@ public class UserService {
         userRepository.save(user);
     }
 
+    @Transactional(readOnly = true)
+    public UserProfileResponse getProfile(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        return new UserProfileResponse(
+                user.getUserId(),
+                user.getEmail(),
+                user.getName(),
+                user.getPhone(),
+                user.isEmailVerified(),
+                user.getCreatedAt()
+        );
+    }
+
+    @Transactional
+    public UserProfileResponse updateProfile(Long userId, ProfileUpdateRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        user.updateProfile(request.name(), request.phone());
+        userRepository.save(user);
+
+        return new UserProfileResponse(
+                user.getUserId(),
+                user.getEmail(),
+                user.getName(),
+                user.getPhone(),
+                user.isEmailVerified(),
+                user.getCreatedAt()
+        );
+    }
+
     @Transactional
     public void confirmEmailVerification(EmailVerifyConfirmRequest request) {
         java.util.Map<String, String> tokenData = emailService.verifyToken(request.token());
