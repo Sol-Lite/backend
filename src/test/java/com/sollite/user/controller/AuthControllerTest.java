@@ -294,22 +294,6 @@ class AuthControllerTest {
         }
 
         @Test
-        @DisplayName("이메일 인증 발송 실패 - 미등록 이메일 404")
-        @WithMockUser
-        void send_fail_notFound() throws Exception {
-            EmailVerifyRequest request = new EmailVerifyRequest("unknown@example.com");
-            doThrow(new BusinessException(UserErrorCode.USER_NOT_FOUND))
-                    .when(userService).sendVerificationEmail(any(EmailVerifyRequest.class));
-
-            mockMvc.perform(post("/api/auth/email/verify/send")
-                            .with(csrf())
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isNotFound())
-                    .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
-        }
-
-        @Test
         @DisplayName("이메일 인증 발송 실패 - 재발송 제한 429")
         @WithMockUser
         void send_fail_rateLimit() throws Exception {

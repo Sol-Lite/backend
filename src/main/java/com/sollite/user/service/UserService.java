@@ -167,16 +167,13 @@ public class UserService {
     }
 
     /**
-     * 이메일 인증 메일을 발송합니다. 사용자가 등록되지 않은 경우 예외를 던집니다.
+     * 이메일 인증 메일을 발송합니다. 사용자 존재 여부와 무관하게 항상 성공 응답을 반환합니다 (User Enumeration 방지).
      *
      * @param request 이메일 주소
-     * @throws BusinessException 사용자 미등록 시
      */
     public void sendVerificationEmail(EmailVerifyRequest request) {
-        User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
-
-        emailService.sendVerificationEmail(user.getEmail(), user.getUserId());
+        userRepository.findByEmail(request.email())
+                .ifPresent(user -> emailService.sendVerificationEmail(user.getEmail(), user.getUserId()));
     }
 
     /**
