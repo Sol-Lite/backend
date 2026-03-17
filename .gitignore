@@ -41,3 +41,6 @@ bin/
 
 ### Secrets ###
 application-local.yml
+
+### Data ###
+src/main/resources/data/*.csv
