@@ -43,6 +43,10 @@ public class UserService {
             throw new BusinessException(UserErrorCode.PASSWORD_CONFIRM_MISMATCH);
         }
 
+        if (!checkEmailVerified(request.email())) {
+            throw new BusinessException(UserErrorCode.EMAIL_NOT_VERIFIED);
+        }
+
         if (userRepository.existsByEmail(request.email())) {
             throw new BusinessException(UserErrorCode.DUPLICATE_EMAIL);
         }
@@ -57,13 +61,17 @@ public class UserService {
                 .marketingAgreed(request.marketingAgreed())
                 .build();
 
+        user.verifyEmail();
         userRepository.save(user);
+
+        // 사용한 인증 키 삭제
+        redisTemplate.delete("email_verified:" + request.email());
 
         return new SignupResponse(
                 user.getUserId(),
                 user.getEmail(),
                 user.getName(),
-                "회원가입이 완료되었습니다. 이메일 인증을 진행해주세요."
+                "회원가입이 완료되었습니다."
         );
     }
 
@@ -178,13 +186,22 @@ public class UserService {
     }
 
     /**
-     * 이메일 인증 메일을 발송합니다. 사용자 존재 여부와 무관하게 항상 성공 응답을 반환합니다 (User Enumeration 방지).
+     * 이메일 인증 메일을 발송합니다. 회원가입 전에도 호출 가능합니다.
      *
      * @param request 이메일 주소
      */
     public void sendVerificationEmail(EmailVerifyRequest request) {
-        userRepository.findByEmail(request.email())
-                .ifPresent(user -> emailService.sendVerificationEmail(user.getEmail(), user.getUserId()));
+        emailService.sendVerificationEmail(request.email());
+    }
+
+    /**
+     * 이메일 인증 완료 여부를 확인합니다. 프론트에서 폴링용으로 사용합니다.
+     *
+     * @param email 이메일 주소
+     * @return 인증 완료 여부
+     */
+    public boolean checkEmailVerified(String email) {
+        return "true".equals(redisTemplate.opsForValue().get("email_verified:" + email));
     }
 
     /**
@@ -292,19 +309,12 @@ public class UserService {
     }
 
     /**
-     * 이메일 인증 토큰을 검증하고 사용자의 이메일을 인증 처리합니다.
+     * 이메일 인증 토큰을 검증합니다. 인증 완료 상태는 Redis에 저장되며 회원가입 시 검증됩니다.
      *
      * @param request 이메일 인증 토큰
-     * @throws BusinessException 토큰 만료, 사용자 미등록 시
+     * @throws BusinessException 토큰 만료 시
      */
-    @Transactional
     public void confirmEmailVerification(EmailVerifyConfirmRequest request) {
-        java.util.Map<String, String> tokenData = emailService.verifyToken(request.token());
-
-        Long userId = Long.parseLong(tokenData.get("user_id"));
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
-
-        user.verifyEmail();
+        emailService.verifyToken(request.token());
     }
 }

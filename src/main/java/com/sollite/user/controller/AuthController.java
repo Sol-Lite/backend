@@ -9,10 +9,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
 
 /**
  * 사용자 인증 관련 API 컨트롤러.
@@ -78,6 +76,18 @@ public class AuthController {
     public ResponseEntity<MessageResponse> confirmEmailVerification(@Valid @RequestBody EmailVerifyConfirmRequest request) {
         userService.confirmEmailVerification(request);
         return ResponseEntity.ok(new MessageResponse("이메일 인증이 완료되었습니다."));
+    }
+
+    /**
+     * 이메일 인증 완료 여부를 조회합니다. 회원가입 페이지에서 폴링용으로 사용합니다.
+     *
+     * @param email 이메일 주소
+     * @return 200 OK - 인증 완료 여부
+     */
+    @GetMapping("/email/verify/status")
+    public ResponseEntity<EmailVerifyStatusResponse> checkEmailVerifyStatus(@RequestParam String email) {
+        boolean verified = userService.checkEmailVerified(email);
+        return ResponseEntity.ok(new EmailVerifyStatusResponse(verified));
     }
 
     /**
