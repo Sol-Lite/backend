@@ -44,3 +44,6 @@ application-local.yml
 
 ### Editor Rules ###
 .cursorrules
+
+### Claude ###
+CLAUDE.md
