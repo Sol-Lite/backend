@@ -3,6 +3,8 @@ package com.sollite.user.service;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.global.security.JwtTokenProvider;
 import com.sollite.user.domain.entity.User;
+import com.sollite.user.domain.entity.UserConsent;
+import com.sollite.user.domain.repository.UserConsentRepository;
 import com.sollite.user.domain.repository.UserRepository;
 import com.sollite.user.dto.*;
 import com.sollite.user.exception.UserErrorCode;
@@ -23,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final UserConsentRepository userConsentRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final StringRedisTemplate redisTemplate;
@@ -55,14 +58,13 @@ public class UserService {
                 .email(request.email())
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .name(request.name())
-                .phone(request.phone())
-                .serviceTermsAgreed(request.serviceTermsAgreed())
-                .privacyTermsAgreed(request.privacyTermsAgreed())
-                .marketingAgreed(request.marketingAgreed())
+                .phone(request.phone() != null ? request.phone().replaceAll("-", "") : null)
                 .build();
 
         user.verifyEmail();
         userRepository.save(user);
+
+        userConsentRepository.save(UserConsent.of(user, request.serviceTermsAgreed(), request.privacyTermsAgreed()));
 
         // 사용한 인증 키 삭제
         redisTemplate.delete("email_verified:" + request.email());
@@ -186,11 +188,15 @@ public class UserService {
     }
 
     /**
-     * 이메일 인증 메일을 발송합니다. 회원가입 전에도 호출 가능합니다.
+     * 이메일 인증 메일을 발송합니다. 이미 가입된 이메일이면 즉시 오류를 반환합니다.
      *
      * @param request 이메일 주소
+     * @throws BusinessException 이미 가입된 이메일인 경우
      */
     public void sendVerificationEmail(EmailVerifyRequest request) {
+        if (userRepository.existsByEmail(request.email())) {
+            throw new BusinessException(UserErrorCode.DUPLICATE_EMAIL);
+        }
         emailService.sendVerificationEmail(request.email());
     }
 
@@ -296,7 +302,8 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
-        user.updateProfile(request.name(), request.phone());
+        String phone = request.phone() != null ? request.phone().replaceAll("-", "") : null;
+        user.updateProfile(request.name(), phone);
 
         return new UserProfileResponse(
                 user.getUserId(),
