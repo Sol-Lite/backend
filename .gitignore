@@ -42,5 +42,7 @@ bin/
 ### Secrets ###
 application-local.yml
 
+### Data ###
+src/main/resources/data/*.csv
 ### Claude ###
 CLAUDE.md
