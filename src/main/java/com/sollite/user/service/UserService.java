@@ -158,10 +158,21 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
-        String newAccessToken = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
+        String newAccessToken  = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
+        String newRefreshToken = jwtTokenProvider.createRefreshToken(user.getUserId());
+
+        // 기존 토큰의 남은 TTL을 그대로 유지하여 새 토큰 저장
+        long remainingTtl = redisTemplate.getExpire("refresh:" + userId, TimeUnit.MILLISECONDS);
+        redisTemplate.opsForValue().set(
+                "refresh:" + userId,
+                newRefreshToken,
+                remainingTtl > 0 ? remainingTtl : jwtTokenProvider.getRefreshTokenExpiry(false),
+                TimeUnit.MILLISECONDS
+        );
 
         return new TokenRefreshResponse(
                 newAccessToken,
+                newRefreshToken,
                 jwtTokenProvider.getAccessTokenExpiry() / 1000
         );
     }
