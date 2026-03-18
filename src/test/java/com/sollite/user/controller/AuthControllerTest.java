@@ -1,12 +1,15 @@
 package com.sollite.user.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sollite.account.domain.enums.InvestmentType;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.global.exception.GlobalExceptionHandler;
 import com.sollite.global.security.JwtTokenProvider;
 import com.sollite.user.dto.*;
 import com.sollite.user.exception.UserErrorCode;
+import com.sollite.user.service.SignupFacade;
 import com.sollite.user.service.UserService;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -18,13 +21,14 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 
 @WebMvcTest(AuthController.class)
 @Import(GlobalExceptionHandler.class)
@@ -40,6 +44,9 @@ class AuthControllerTest {
     private UserService userService;
 
     @MockitoBean
+    private SignupFacade signupFacade;
+
+    @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
 
     @Nested
@@ -52,13 +59,14 @@ class AuthControllerTest {
         void signup_success() throws Exception {
             SignupRequest request = new SignupRequest(
                     "test@example.com", "Test1234!", "Test1234!",
-                    "홍길동", "010-1234-5678", true, true, false
+                    "홍길동", "010-1234-5678", true, true,
+                    InvestmentType.BALANCED, "1234"
             );
             SignupResponse response = new SignupResponse(
                     1L, "test@example.com", "홍길동",
-                    "회원가입이 완료되었습니다. 이메일 인증을 진행해주세요."
+                    1L, "270-86-123456", "회원가입이 완료되었습니다."
             );
-            given(userService.signup(any(SignupRequest.class))).willReturn(response);
+            given(signupFacade.signup(any(SignupRequest.class))).willReturn(response);
 
             mockMvc.perform(post("/api/auth/signup")
                             .with(csrf())
@@ -76,9 +84,10 @@ class AuthControllerTest {
         void signup_fail_duplicateEmail() throws Exception {
             SignupRequest request = new SignupRequest(
                     "test@example.com", "Test1234!", "Test1234!",
-                    "홍길동", null, true, true, false
+                    "홍길동", "010-1234-5678", true, true,
+                    InvestmentType.BALANCED, "1234"
             );
-            given(userService.signup(any(SignupRequest.class)))
+            given(signupFacade.signup(any(SignupRequest.class)))
                     .willThrow(new BusinessException(UserErrorCode.DUPLICATE_EMAIL));
 
             mockMvc.perform(post("/api/auth/signup")
@@ -96,7 +105,8 @@ class AuthControllerTest {
         void signup_fail_validation() throws Exception {
             SignupRequest request = new SignupRequest(
                     "", "short", "short",
-                    "", null, false, false, false
+                    "", null, false, false,
+                    InvestmentType.BALANCED, "1234"
             );
 
             mockMvc.perform(post("/api/auth/signup")
@@ -119,8 +129,9 @@ class AuthControllerTest {
         void login_success() throws Exception {
             LoginRequest request = new LoginRequest("test@example.com", "Test1234!", false);
             LoginResponse response = new LoginResponse(
-                    "access-token", "refresh-token", 1800,
-                    new LoginResponse.UserInfo(1L, "test@example.com", "홍길동")
+                    "access-token", 1800L,
+                    new LoginResponse.UserInfo(1L, "test@example.com", "홍길동"),
+                    "refresh-token", 604800000L
             );
             given(userService.login(any(LoginRequest.class))).willReturn(response);
 
@@ -130,10 +141,10 @@ class AuthControllerTest {
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.accessToken").value("access-token"))
-                    .andExpect(jsonPath("$.refreshToken").value("refresh-token"))
                     .andExpect(jsonPath("$.expiresIn").value(1800))
                     .andExpect(jsonPath("$.user.email").value("test@example.com"))
-                    .andExpect(jsonPath("$.user.name").value("홍길동"));
+                    .andExpect(jsonPath("$.user.name").value("홍길동"))
+                    .andExpect(cookie().exists("refreshToken"));
         }
 
         @Test
@@ -207,13 +218,11 @@ class AuthControllerTest {
         @DisplayName("로그아웃 API 성공 - 200 OK")
         @WithMockUser(username = "1")
         void logout_success() throws Exception {
-            LogoutRequest request = new LogoutRequest("valid-refresh-token");
-            doNothing().when(userService).logout(any(), any(LogoutRequest.class));
+            doNothing().when(userService).logout(any(), anyString());
 
             mockMvc.perform(post("/api/auth/logout")
                             .with(csrf())
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
+                            .cookie(new Cookie("refreshToken", "valid-refresh-token")))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.message").value("로그아웃 되었습니다."));
         }
@@ -222,14 +231,12 @@ class AuthControllerTest {
         @DisplayName("로그아웃 API 실패 - 유효하지 않은 토큰 401")
         @WithMockUser(username = "1")
         void logout_fail_invalidToken() throws Exception {
-            LogoutRequest request = new LogoutRequest("invalid-token");
             doThrow(new BusinessException(UserErrorCode.INVALID_TOKEN))
-                    .when(userService).logout(any(), any(LogoutRequest.class));
+                    .when(userService).logout(any(), anyString());
 
             mockMvc.perform(post("/api/auth/logout")
                             .with(csrf())
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
+                            .cookie(new Cookie("refreshToken", "invalid-token")))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.code").value("INVALID_TOKEN"));
         }
@@ -243,14 +250,14 @@ class AuthControllerTest {
         @DisplayName("토큰 갱신 API 성공 - 200 OK")
         @WithMockUser
         void refreshToken_success() throws Exception {
-            TokenRefreshRequest request = new TokenRefreshRequest("valid-refresh-token");
-            TokenRefreshResponse response = new TokenRefreshResponse("new-access-token", 1800);
-            given(userService.refreshToken(any(TokenRefreshRequest.class))).willReturn(response);
+            TokenRefreshResponse response = new TokenRefreshResponse(
+                    "new-access-token", 1800L, "new-refresh-token", 604800000L
+            );
+            given(userService.refreshToken(anyString())).willReturn(response);
 
             mockMvc.perform(post("/api/auth/token/refresh")
                             .with(csrf())
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
+                            .cookie(new Cookie("refreshToken", "valid-refresh-token")))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.accessToken").value("new-access-token"))
                     .andExpect(jsonPath("$.expiresIn").value(1800));
@@ -260,14 +267,12 @@ class AuthControllerTest {
         @DisplayName("토큰 갱신 API 실패 - 만료된 토큰 401")
         @WithMockUser
         void refreshToken_fail_expired() throws Exception {
-            TokenRefreshRequest request = new TokenRefreshRequest("expired-token");
-            given(userService.refreshToken(any(TokenRefreshRequest.class)))
+            given(userService.refreshToken(anyString()))
                     .willThrow(new BusinessException(UserErrorCode.TOKEN_EXPIRED));
 
             mockMvc.perform(post("/api/auth/token/refresh")
                             .with(csrf())
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
+                            .cookie(new Cookie("refreshToken", "expired-token")))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.code").value("TOKEN_EXPIRED"));
         }
