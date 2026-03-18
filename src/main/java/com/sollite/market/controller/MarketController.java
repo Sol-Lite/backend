@@ -1,9 +1,6 @@
 package com.sollite.market.controller;
 
-import com.sollite.market.dto.ChartPeriod;
-import com.sollite.market.dto.ChartResponse;
-import com.sollite.market.dto.CurrentPriceResponse;
-import com.sollite.market.dto.DailyPriceResponse;
+import com.sollite.market.dto.*;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -38,5 +35,12 @@ public class MarketController {
             @RequestParam LocalDate startDate,
             @RequestParam LocalDate endDate) {
         return ResponseEntity.ok(marketService.getChart(stockCode, period, startDate, endDate));
+    }
+
+    @GetMapping("/stocks/{stockCode}/minute-chart")
+    public ResponseEntity<MinuteChartResponse> getMinuteChart(
+            @PathVariable String stockCode,
+            @RequestParam(defaultValue = "1") int ncnt) {
+        return ResponseEntity.ok(marketService.getMinuteChart(stockCode, ncnt));
     }
 }
