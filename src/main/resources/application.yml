@@ -15,7 +15,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
       dialect: org.hibernate.dialect.OracleDialect
       format_sql: true
     show-sql: true
