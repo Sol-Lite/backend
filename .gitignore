@@ -45,5 +45,7 @@ application-local.yml
 ### Editor Rules ###
 .cursorrules
 
+### Data ###
+src/main/resources/data/*.csv
 ### Claude ###
 CLAUDE.md

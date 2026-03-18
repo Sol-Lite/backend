@@ -30,55 +30,49 @@ public class EmailService {
     private final StringRedisTemplate redisTemplate;
     private final TemplateEngine templateEngine;
 
-    @Value("${app.base-url}")
-    private String baseUrl;
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
 
     @Value("${app.mail.from}")
     private String mailFrom;
 
-    private static final long VERIFY_TOKEN_TTL = 30; // 30분
-    private static final int RATE_LIMIT = 3;         // 10분 내 3회
-    private static final long RATE_LIMIT_TTL = 10;   // 10분
+    private static final long VERIFY_TOKEN_TTL = 30;               // 30분
+    private static final int RATE_LIMIT = 3;                       // 10분 내 3회
+    private static final long RATE_LIMIT_TTL = 10;                 // 10분
+    private static final String EMAIL_VERIFY_LIMIT = "email_verify_limit:";
+    private static final String PW_RESET_LIMIT     = "pw_reset_limit:";
 
     /**
-     * 이메일 인증 메일을 발송합니다.
+     * 이메일 인증 메일을 발송합니다. 회원가입 전에도 호출 가능합니다.
      *
      * @param email 발송할 이메일 주소
-     * @param userId 사용자 ID
      * @throws BusinessException 재발송 제한 초과 시
      * @throws BusinessException 이메일 발송 실패 시
      */
-    public void sendVerificationEmail(String email, Long userId) {
-        checkRateLimit(email);
+    public void sendVerificationEmail(String email) {
+        String rateLimitKey = EMAIL_VERIFY_LIMIT + email;
+        checkRateLimit(rateLimitKey);
 
         String token = UUID.randomUUID().toString();
 
-        // Redis에 인증 토큰 저장
         redisTemplate.opsForHash().putAll("email_verify:" + token, Map.of(
-                "user_id", String.valueOf(userId),
                 "email", email,
                 "created_at", java.time.LocalDateTime.now().toString()
         ));
         redisTemplate.expire("email_verify:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
 
-        // rate limit 카운터 증가
-        String rateLimitKey = "email_verify_limit:" + email;
-        redisTemplate.opsForValue().increment(rateLimitKey);
-        if (redisTemplate.getExpire(rateLimitKey) == -1) {
-            redisTemplate.expire(rateLimitKey, RATE_LIMIT_TTL, TimeUnit.MINUTES);
-        }
-
+        incrementRateLimit(rateLimitKey);
         sendHtmlEmail(email, token);
     }
 
     /**
-     * 이메일 인증 토큰을 검증하고 사용자 정보를 반환합니다. 토큰은 1회용이므로 사용 후 삭제됩니다.
+     * 이메일 인증 토큰을 검증하고 인증 완료 상태를 Redis에 저장합니다. 토큰은 1회용이므로 사용 후 삭제됩니다.
      *
      * @param token 이메일 인증 토큰
-     * @return 사용자 ID와 이메일 주소
+     * @return 인증된 이메일 주소
      * @throws BusinessException 토큰 만료 또는 유효하지 않은 토큰 시
      */
-    public Map<String, String> verifyToken(String token) {
+    public String verifyToken(String token) {
         String key = "email_verify:" + token;
         Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
 
@@ -89,10 +83,12 @@ public class EmailService {
         // 토큰 사용 후 삭제 (1회용)
         redisTemplate.delete(key);
 
-        return Map.of(
-                "user_id", (String) data.get("user_id"),
-                "email", (String) data.get("email")
-        );
+        String email = (String) data.get("email");
+
+        // 인증 완료 표시 저장 (회원가입 시 검증용, 30분 유효)
+        redisTemplate.opsForValue().set("email_verified:" + email, "true", VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
+
+        return email;
     }
 
     /**
@@ -101,11 +97,17 @@ public class EmailService {
      * @param email 이메일 주소
      * @throws BusinessException 재발송 제한 초과 시
      */
-    private void checkRateLimit(String email) {
-        String rateLimitKey = "email_verify_limit:" + email;
+    private void checkRateLimit(String rateLimitKey) {
         String count = redisTemplate.opsForValue().get(rateLimitKey);
         if (count != null && Integer.parseInt(count) >= RATE_LIMIT) {
             throw new BusinessException(UserErrorCode.TOO_MANY_REQUESTS);
+        }
+    }
+
+    private void incrementRateLimit(String rateLimitKey) {
+        redisTemplate.opsForValue().increment(rateLimitKey);
+        if (redisTemplate.getExpire(rateLimitKey) == -1) {
+            redisTemplate.expire(rateLimitKey, RATE_LIMIT_TTL, TimeUnit.MINUTES);
         }
     }
 
@@ -118,7 +120,8 @@ public class EmailService {
      * @throws BusinessException 이메일 발송 실패 시
      */
     public void sendPasswordResetEmail(String email, Long userId) {
-        checkRateLimit(email);
+        String rateLimitKey = PW_RESET_LIMIT + email;
+        checkRateLimit(rateLimitKey);
 
         String token = UUID.randomUUID().toString();
 
@@ -129,12 +132,7 @@ public class EmailService {
         ));
         redisTemplate.expire("pw_reset:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
 
-        String rateLimitKey = "email_verify_limit:" + email;
-        redisTemplate.opsForValue().increment(rateLimitKey);
-        if (redisTemplate.getExpire(rateLimitKey) == -1) {
-            redisTemplate.expire(rateLimitKey, RATE_LIMIT_TTL, TimeUnit.MINUTES);
-        }
-
+        incrementRateLimit(rateLimitKey);
         sendPasswordResetHtmlEmail(email, token);
     }
 
@@ -170,7 +168,7 @@ public class EmailService {
             helper.setSubject("[SOL-Lite] 비밀번호 재설정");
             helper.setFrom(mailFrom);
 
-            String resetUrl = baseUrl + "/api/auth/password/reset/confirm?token=" + token;
+            String resetUrl = frontendUrl + "/password/reset?token=" + token;
 
             Context context = new Context();
             context.setVariable("resetUrl", resetUrl);
@@ -193,7 +191,7 @@ public class EmailService {
             helper.setSubject("[SOL-Lite] 이메일 인증");
             helper.setFrom(mailFrom);
 
-            String verifyUrl = baseUrl + "/api/auth/email/verify/confirm?token=" + token;
+            String verifyUrl = frontendUrl + "/email/verify?token=" + token;
 
             Context context = new Context();
             context.setVariable("verifyUrl", verifyUrl);

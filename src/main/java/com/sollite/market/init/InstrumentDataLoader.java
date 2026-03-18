@@ -76,6 +76,12 @@ public class InstrumentDataLoader implements ApplicationRunner {
                     batch.clear();
                 }
             }
+
+        } catch (Exception e) {
+            // 부분 적재된 데이터 정리 후 재시작 시 재시도 가능하도록 롤백
+            log.error("[InstrumentDataLoader] 적재 중 오류 발생. 부분 데이터를 삭제합니다. 원인: {}", e.getMessage());
+            jdbcTemplate.execute("DELETE FROM instruments");
+            throw new IllegalStateException("instruments 초기 데이터 적재 실패", e);
         }
 
         if (!batch.isEmpty()) {

@@ -50,26 +50,11 @@ public class User {
     @Column(name = "withdrawn_at")
     private LocalDateTime withdrawnAt;
 
-    @Column(name = "service_terms_agreed_yn", nullable = false, columnDefinition = "CHAR(1)")
-    private String serviceTermsAgreedYn = "N";
-
-    @Column(name = "privacy_terms_agreed_yn", nullable = false, columnDefinition = "CHAR(1)")
-    private String privacyTermsAgreedYn = "N";
-
-    @Column(name = "marketing_agreed_yn", nullable = false, columnDefinition = "CHAR(1)")
-    private String marketingAgreedYn = "N";
-
-    @Column(name = "terms_agreed_at")
-    private LocalDateTime termsAgreedAt;
-
     @Column(name = "default_market", length = 10)
     private String defaultMarket = "DOMESTIC";
 
     @Column(length = 20)
     private String theme = "LIGHT";
-
-    @Column(length = 10)
-    private String language = "KO";
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -80,16 +65,11 @@ public class User {
     private LocalDateTime updatedAt;
 
     @Builder
-    public User(String email, String passwordHash, String name, String phone,
-                boolean serviceTermsAgreed, boolean privacyTermsAgreed, boolean marketingAgreed) {
+    public User(String email, String passwordHash, String name, String phone) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.name = name;
         this.phone = phone;
-        this.serviceTermsAgreedYn = serviceTermsAgreed ? "Y" : "N";
-        this.privacyTermsAgreedYn = privacyTermsAgreed ? "Y" : "N";
-        this.marketingAgreedYn = marketingAgreed ? "Y" : "N";
-        this.termsAgreedAt = LocalDateTime.now();
     }
 
     public void verifyEmail() {
