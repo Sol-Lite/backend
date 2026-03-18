@@ -56,6 +56,16 @@ public class AccountService {
     }
 
     @Transactional(readOnly = true)
+    public void verifyPin(Long userId, String accountPin) {
+        Account account = accountRepository.findByUser_UserId(userId)
+                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
+
+        if (!passwordEncoder.matches(accountPin, account.getAccountPinHash())) {
+            throw new BusinessException(AccountErrorCode.INVALID_PIN);
+        }
+    }
+
+    @Transactional(readOnly = true)
     public AccountInfoResponse getMyAccount(Long userId) {
         Account account = accountRepository.findByUser_UserId(userId)
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
