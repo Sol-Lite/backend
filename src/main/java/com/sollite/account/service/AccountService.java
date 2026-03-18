@@ -9,6 +9,9 @@ import com.sollite.account.dto.AccountInfoResponse;
 import com.sollite.account.exception.AccountErrorCode;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.user.domain.entity.User;
+import com.sollite.user.domain.repository.UserRepository;
+import com.sollite.user.exception.UserErrorCode;
+import com.sollite.user.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -25,6 +28,8 @@ public class AccountService {
 
     private final AccountRepository accountRepository;
     private final SimulationRoundRepository simulationRoundRepository;
+    private final UserRepository userRepository;
+    private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
 
     /**
@@ -78,6 +83,36 @@ public class AccountService {
                 account.getAccountStatus().name(),
                 account.getCreatedAt()
         );
+    }
+
+    @Transactional
+    public void changePin(Long userId, String currentPin, String newPin) {
+        Account account = accountRepository.findByUser_UserId(userId)
+                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
+
+        if (!passwordEncoder.matches(currentPin, account.getAccountPinHash())) {
+            throw new BusinessException(AccountErrorCode.INVALID_PIN);
+        }
+
+        account.changePin(passwordEncoder.encode(newPin));
+    }
+
+    public void requestPinReset(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        emailService.sendPinResetEmail(user.getEmail(), userId);
+    }
+
+    @Transactional
+    public void confirmPinReset(String token, String newPin) {
+        java.util.Map<String, String> tokenData = emailService.verifyPinResetToken(token);
+
+        Long userId = Long.parseLong(tokenData.get("user_id"));
+        Account account = accountRepository.findByUser_UserId(userId)
+                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
+
+        account.changePin(passwordEncoder.encode(newPin));
     }
 
     private String generateAccountNo() {

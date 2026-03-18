@@ -1,6 +1,8 @@
 package com.sollite.account.controller;
 
 import com.sollite.account.dto.AccountInfoResponse;
+import com.sollite.account.dto.PinChangeRequest;
+import com.sollite.account.dto.PinResetConfirmRequest;
 import com.sollite.account.dto.PinVerifyRequest;
 import com.sollite.account.service.AccountService;
 import com.sollite.global.util.AuthUtil;
@@ -10,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,6 +52,50 @@ public class AccountController {
         Long userId = AuthUtil.getUserId(authentication);
         accountService.verifyPin(userId, request.accountPin());
         return ResponseEntity.ok(new MessageResponse("계좌 비밀번호가 확인되었습니다."));
+    }
+
+    /**
+     * 계좌 비밀번호를 변경합니다. 현재 비밀번호를 알고 있을 때 사용합니다.
+     *
+     * @param authentication 현재 인증된 사용자 정보
+     * @param request 현재 PIN과 새 PIN
+     * @return 200 OK - 변경 완료 메시지
+     * @throws BusinessException 계좌 미존재, 현재 PIN 불일치 시
+     */
+    @PatchMapping("/me/pin")
+    public ResponseEntity<MessageResponse> changePin(
+            Authentication authentication,
+            @Valid @RequestBody PinChangeRequest request) {
+        Long userId = AuthUtil.getUserId(authentication);
+        accountService.changePin(userId, request.currentPin(), request.newPin());
+        return ResponseEntity.ok(new MessageResponse("계좌 비밀번호가 변경되었습니다."));
+    }
+
+    /**
+     * 계좌 비밀번호 재설정 메일을 요청합니다. PIN을 분실했을 때 사용합니다.
+     *
+     * @param authentication 현재 인증된 사용자 정보
+     * @return 200 OK - 발송 완료 메시지
+     */
+    @PostMapping("/pin/reset/request")
+    public ResponseEntity<MessageResponse> requestPinReset(Authentication authentication) {
+        Long userId = AuthUtil.getUserId(authentication);
+        accountService.requestPinReset(userId);
+        return ResponseEntity.ok(new MessageResponse("계좌 비밀번호 재설정 메일이 발송되었습니다."));
+    }
+
+    /**
+     * 계좌 비밀번호 재설정을 확인하고 처리합니다.
+     *
+     * @param request 재설정 토큰과 새 PIN
+     * @return 200 OK - 변경 완료 메시지
+     * @throws BusinessException 토큰 만료, 계좌 미존재 시
+     */
+    @PostMapping("/pin/reset/confirm")
+    public ResponseEntity<MessageResponse> confirmPinReset(
+            @Valid @RequestBody PinResetConfirmRequest request) {
+        accountService.confirmPinReset(request.token(), request.newPin());
+        return ResponseEntity.ok(new MessageResponse("계좌 비밀번호가 재설정되었습니다."));
     }
 }
 
