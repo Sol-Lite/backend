@@ -2,15 +2,13 @@ package com.sollite.account.service;
 
 import com.sollite.account.domain.entity.Account;
 import com.sollite.account.domain.entity.SimulationRound;
+import com.sollite.account.domain.enums.InvestmentType;
 import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.account.domain.repository.SimulationRoundRepository;
-import com.sollite.account.dto.AccountOpenRequest;
-import com.sollite.account.dto.AccountOpenResponse;
+import com.sollite.account.dto.AccountInfoResponse;
 import com.sollite.account.exception.AccountErrorCode;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.user.domain.entity.User;
-import com.sollite.user.domain.repository.UserRepository;
-import com.sollite.user.exception.UserErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -27,27 +25,21 @@ public class AccountService {
 
     private final AccountRepository accountRepository;
     private final SimulationRoundRepository simulationRoundRepository;
-    private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
-    @Transactional
-    public AccountOpenResponse openAccount(Long userId, AccountOpenRequest request) {
-        if (accountRepository.existsByUser_UserId(userId)) {
-            throw new BusinessException(AccountErrorCode.ACCOUNT_ALREADY_EXISTS);
-        }
-
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
-
+    /**
+     * Facade에서 호출하는 계좌 생성 메서드. 트랜잭션은 Facade가 관리합니다.
+     */
+    public Account createAccount(User user, InvestmentType investmentType, String accountPin) {
         String accountNo = generateAccountNo();
-        String pinHash = passwordEncoder.encode(request.accountPin());
+        String pinHash = passwordEncoder.encode(accountPin);
 
         Account account = Account.builder()
                 .user(user)
                 .accountNo(accountNo)
                 .accountName("종합계좌 " + user.getName())
                 .accountPinHash(pinHash)
-                .investmentTendency(request.investmentType())
+                .investmentTendency(investmentType)
                 .build();
 
         accountRepository.save(account);
@@ -60,11 +52,21 @@ public class AccountService {
 
         simulationRoundRepository.save(round);
 
-        return new AccountOpenResponse(
+        return account;
+    }
+
+    @Transactional(readOnly = true)
+    public AccountInfoResponse getMyAccount(Long userId) {
+        Account account = accountRepository.findByUser_UserId(userId)
+                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
+
+        return new AccountInfoResponse(
                 account.getAccountId(),
                 account.getAccountNo(),
-                SEED_MONEY,
-                "계좌가 개설되었습니다."
+                account.getAccountName(),
+                account.getInvestmentTendency(),
+                account.getAccountStatus().name(),
+                account.getCreatedAt()
         );
     }
 
