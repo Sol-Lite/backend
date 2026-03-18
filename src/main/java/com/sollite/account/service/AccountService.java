@@ -115,6 +115,26 @@ public class AccountService {
         account.changePin(passwordEncoder.encode(newPin));
     }
 
+    @Transactional
+    public void closeAccount(Long userId, String accountPin) {
+        Account account = accountRepository.findByUser_UserId(userId)
+                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
+
+        if (!account.isActive()) {
+            throw new BusinessException(AccountErrorCode.ACCOUNT_NOT_ACTIVE);
+        }
+
+        if (!passwordEncoder.matches(accountPin, account.getAccountPinHash())) {
+            throw new BusinessException(AccountErrorCode.INVALID_PIN);
+        }
+
+        // TODO: 잔고 > 0 이면 폐쇄 불가 — balance 도메인 구현 후 추가 (issue #15)
+        // TODO: 보유 주식/ETF 있으면 폐쇄 불가 — holdings 도메인 구현 후 추가 (issue #15)
+        // TODO: 미체결 주문 있으면 폐쇄 불가 — order 도메인 구현 후 추가 (issue #15)
+
+        account.close();
+    }
+
     private String generateAccountNo() {
         int seq = ThreadLocalRandom.current().nextInt(100000, 1000000);
         String candidate = "270-86-" + seq;
