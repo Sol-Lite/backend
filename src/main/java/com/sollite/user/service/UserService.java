@@ -239,6 +239,7 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
         user.changePassword(passwordEncoder.encode(request.newPassword()));
+        user.unlock();
 
         // 모든 세션 강제 로그아웃
         redisTemplate.delete("refresh:" + userId);
