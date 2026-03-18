@@ -20,17 +20,17 @@ public record SignupRequest(
         @NotBlank(message = "이름은 필수입니다")
         String name,
 
+        @NotBlank(message = "전화번호는 필수입니다")
+        @Pattern(
+                regexp = "^\\d{2,3}-\\d{3,4}-\\d{4}$",
+                message = "전화번호는 010-1234-5678 형식으로 입력하세요"
+        )
         String phone,
 
         @AssertTrue(message = "서비스 이용약관에 동의해야 합니다")
         Boolean serviceTermsAgreed,
 
         @AssertTrue(message = "개인정보처리방침에 동의해야 합니다")
-        Boolean privacyTermsAgreed,
-
-        Boolean marketingAgreed
+        Boolean privacyTermsAgreed
 ) {
-    public SignupRequest {
-        if (marketingAgreed == null) marketingAgreed = false;
-    }
 }
