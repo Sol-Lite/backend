@@ -1,12 +1,13 @@
 package com.sollite.market.controller;
 
-import com.sollite.market.dto.response.CurrentPriceResponse;
-import com.sollite.market.dto.response.DailyPriceListResponse;
-import com.sollite.market.dto.response.DailyPriceResponse;
+import com.sollite.market.dto.CurrentPriceResponse;
+import com.sollite.market.dto.DailyPriceResponse;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/api/market")
@@ -22,9 +23,9 @@ public class MarketController {
     }
 
     @GetMapping("/stocks/{stockCode}/daily")
-    public ResponseEntity<DailyPriceListResponse>
-    getDailyPrices(@PathVariable String stockCode) {
-        DailyPriceListResponse response = marketService.getDailyPriceList(stockCode);
-        return ResponseEntity.ok(response);
+    public ResponseEntity<DailyPriceResponse> getDailyPrice(
+            @PathVariable String stockCode,
+            @RequestParam LocalDate date) {
+        return ResponseEntity.ok(marketService.getDailyPrice(stockCode, date));
     }
 }
