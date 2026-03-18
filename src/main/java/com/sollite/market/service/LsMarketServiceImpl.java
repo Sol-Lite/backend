@@ -12,6 +12,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -210,4 +211,75 @@ class LsMarketServiceImpl implements MarketService {
         }
     }
 
+    @Override
+    public MinuteChartResponse getMinuteChart(String stockCode, int ncnt) {
+        return getMinuteChart(stockCode, ncnt, false);
+    }
+
+    private MinuteChartResponse getMinuteChart(String stockCode, int ncnt, boolean isRetry) {
+        String token = tokenService.getAccessToken();
+        try {
+            record LsReqBody(String shcode, int ncnt, int qrycnt, String nday, String sdate, String stime, String edate,
+                             String etime, String cts_date, String cts_time, String comp_yn) {
+            }
+            record LsReq(LsReqBody t8412InBlock) {
+            }
+
+            DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("yyyyMMdd");
+            DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HHmmss");
+
+            String raw = lsWebClient.post()
+                    .uri("/stock/chart")
+                    .header("authorization", "Bearer " + token)
+                    .header("content-type", "application/json; charset=utf-8")
+                    .header("tr_cd", "t8412")
+                    .header("tr_cont", "N")
+                    .header("mac_address", "00:00:00:00:00:00")
+                    .bodyValue(new LsReq(new LsReqBody(
+                            stockCode, ncnt, 500, "0",
+                            " ", " ", "99999999", " ",
+                            " ", " ", "N"
+                    )))
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            log.debug("LS t8412 raw: {}", raw);
+            LsMinuteChartRes lsRes = objectMapper.readValue(raw, LsMinuteChartRes.class);
+
+            if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                log.warn("LS API 분봉 조회 실패: stockCode={}, msg={}", stockCode, lsRes != null ? lsRes.rsp_msg() : "NULL");
+                throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+            }
+
+            List<LsMinuteChartRes.LsMinuteChartItem> rawList = lsRes.t8412OutBlock1() != null ? lsRes.t8412OutBlock1() : List.of();
+
+            List<MinuteChartResponse.MinuteChartDataPoint> dataPoints = rawList.stream()
+                    .map(item -> new MinuteChartResponse.MinuteChartDataPoint(
+                            LocalDate.parse(item.date(), dateFmt)
+                                    .atTime(LocalTime.parse(item.time(), timeFmt)),
+                            item.open(),
+                            item.high(),
+                            item.low(),
+                            item.close(),
+                            item.jdiff_vol()
+                    ))
+                    .toList();
+
+            return new MinuteChartResponse(stockCode, ncnt, dataPoints);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (WebClientResponseException e) {
+            if (!isRetry && e.getStatusCode().value() == 401) {
+                log.warn("토큰 만료 감지 (401), 재발급 후 재시도: stockCode={}", stockCode);
+                tokenService.invalidateToken();
+                return getMinuteChart(stockCode, ncnt, true);
+            }
+            log.error("LS증권 API 호출 실패. HTTP 상태: {}, 응답: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        } catch (Exception e) {
+            log.error("분봉 조회 중 예외 발생: stockCode={}", stockCode, e);
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+    }
 }
