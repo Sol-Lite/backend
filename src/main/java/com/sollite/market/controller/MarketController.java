@@ -1,5 +1,7 @@
 package com.sollite.market.controller;
 
+import com.sollite.market.dto.ChartPeriod;
+import com.sollite.market.dto.ChartResponse;
 import com.sollite.market.dto.CurrentPriceResponse;
 import com.sollite.market.dto.DailyPriceResponse;
 import com.sollite.market.service.MarketService;
@@ -27,5 +29,14 @@ public class MarketController {
             @PathVariable String stockCode,
             @RequestParam LocalDate date) {
         return ResponseEntity.ok(marketService.getDailyPrice(stockCode, date));
+    }
+
+    @GetMapping("/stocks/{stockCode}/chart")
+    public ResponseEntity<ChartResponse> getChart(
+            @PathVariable String stockCode,
+            @RequestParam ChartPeriod period,
+            @RequestParam LocalDate startDate,
+            @RequestParam LocalDate endDate) {
+        return ResponseEntity.ok(marketService.getChart(stockCode, period, startDate, endDate));
     }
 }
