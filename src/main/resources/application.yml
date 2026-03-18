@@ -87,3 +87,9 @@ logging:
     com.sollite: DEBUG
     org.hibernate.SQL: DEBUG
 
+# ── LS Securities API ──
+ls:
+  api:
+    url: "https://openapi.ls-sec.co.kr:8080"
+    appkey: ${LS_APPKEY}
+    appsecret: ${LS_APPSECRET}
