@@ -23,6 +23,7 @@ class LsMarketServiceImpl implements MarketService {
     private final WebClient lsWebClient;
     private final LsTokenService tokenService;
     private final ObjectMapper objectMapper;
+    private static final String DUMMY_MAC = "00:00:00:00:00:00";
 
     @Override
     public CurrentPriceResponse getCurrentPrice(String stockCode) {
@@ -35,17 +36,19 @@ class LsMarketServiceImpl implements MarketService {
             record LsReqBody(String shcode) {}
             record LsReq(LsReqBody t1102InBlock) {}
 
-            LsCurrentPriceRes lsRes = lsWebClient.post()
+            String raw = lsWebClient.post()
                     .uri("/stock/market-data")
                     .header("authorization", "Bearer " + token)
                     .header("content-type", "application/json; charset=utf-8")
                     .header("tr_cd", "t1102")
                     .header("tr_cont", "N")
-                    .header("mac_address", "00:00:00:00:00:00")
+                    .header("mac_address", DUMMY_MAC)
                     .bodyValue(new LsReq(new LsReqBody(stockCode)))
                     .retrieve()
-                    .bodyToMono(LsCurrentPriceRes.class)
+                    .bodyToMono(String.class)
                     .block();
+            log.debug("LS t1102 raw: {}", raw);
+            LsCurrentPriceRes lsRes = objectMapper.readValue(raw, LsCurrentPriceRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
                 log.warn("LS API 시세 조회 실패: stockCode={}, msg={}", stockCode,
@@ -94,7 +97,7 @@ class LsMarketServiceImpl implements MarketService {
                     .header("content-type", "application/json; charset=utf-8")
                     .header("tr_cd", "t1305")
                     .header("tr_cont", "N")
-                    .header("mac_address", "00:00:00:00:00:00")
+                    .header("mac_address", DUMMY_MAC)
                     .bodyValue(new LsReq(new LsReqBody(stockCode, 1, date.format(fmt), 10)))
                     .retrieve()
                     .bodyToMono(String.class)
@@ -159,7 +162,7 @@ class LsMarketServiceImpl implements MarketService {
                     .header("content-type", "application/json; charset=utf-8")
                     .header("tr_cd", "t8410")
                     .header("tr_cont", "N")
-                    .header("mac_address", "00:00:00:00:00:00")
+                    .header("mac_address", DUMMY_MAC)
                     .bodyValue(new LsReq(new LsReqBody(
                             stockCode,
                             String.valueOf(period.getGubun()),
@@ -234,7 +237,7 @@ class LsMarketServiceImpl implements MarketService {
                     .header("content-type", "application/json; charset=utf-8")
                     .header("tr_cd", "t8412")
                     .header("tr_cont", "N")
-                    .header("mac_address", "00:00:00:00:00:00")
+                    .header("mac_address", DUMMY_MAC)
                     .bodyValue(new LsReq(new LsReqBody(
                             stockCode, ncnt, 500, "0",
                             " ", " ", "99999999", " ",
