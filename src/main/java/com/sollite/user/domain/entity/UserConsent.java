@@ -2,12 +2,14 @@ package com.sollite.user.domain.entity;
 
 import jakarta.persistence.*;
 import lombok.AccessLevel;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "user_consents")
+@Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UserConsent {
 

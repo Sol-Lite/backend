@@ -15,11 +15,9 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.OracleDialect
-        format_sql: true
+      ddl-auto: update
+      dialect: org.hibernate.dialect.OracleDialect
+      format_sql: true
     show-sql: true
 
   # ── Flyway ──
@@ -88,3 +86,4 @@ logging:
   level:
     com.sollite: DEBUG
     org.hibernate.SQL: DEBUG
+
