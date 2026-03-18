@@ -25,7 +25,7 @@ public class LsTokenService {
     @Value("${ls.api.appsecret}") private String appSecret;
 
     public synchronized String getAccessToken() {
-        if (cachedToken == null || Instant.now().isAfter(tokenExpiresAt.minusSeconds(60))) {
+        if (cachedToken == null || tokenExpiresAt == null || Instant.now().isAfter(tokenExpiresAt.minusSeconds(60))) {
             issueNewToken();
         }
         return cachedToken;
