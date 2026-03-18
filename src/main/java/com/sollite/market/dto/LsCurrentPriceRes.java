@@ -1,4 +1,4 @@
-package com.sollite.market.dto.response.ls;
+package com.sollite.market.dto;
 
 public record LsCurrentPriceRes(
         String rsp_cd,
