@@ -1,7 +1,10 @@
 package com.sollite.user.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 public record TokenRefreshResponse(
         String accessToken,
-        String refreshToken,
-        long expiresIn
+        long expiresIn,
+        @JsonIgnore String refreshToken,
+        @JsonIgnore long refreshTokenMaxAge
 ) {}
