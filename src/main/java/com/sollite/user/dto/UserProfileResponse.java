@@ -8,5 +8,6 @@ public record UserProfileResponse(
         String name,
         String phone,
         boolean emailVerified,
+        Long accountId,
         LocalDateTime createdAt
 ) {}

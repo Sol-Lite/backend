@@ -1,6 +1,10 @@
 package com.sollite.user.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sollite.account.domain.enums.InvestmentType;
+import com.sollite.account.domain.repository.AccountRepository;
+import com.sollite.account.domain.repository.SimulationRoundRepository;
+import com.sollite.user.domain.repository.UserConsentRepository;
 import com.sollite.user.domain.repository.UserRepository;
 import com.sollite.user.dto.LoginRequest;
 import com.sollite.user.dto.SignupRequest;
@@ -11,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -32,14 +37,30 @@ class LoginIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private AccountRepository accountRepository;
+
+    @Autowired
+    private SimulationRoundRepository simulationRoundRepository;
+
+    @Autowired
+    private UserConsentRepository userConsentRepository;
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
     private static final String TEST_EMAIL = "login-test@test.com";
     private static final String TEST_PASSWORD = "Test1234!";
 
     @BeforeEach
     void setup() throws Exception {
+        deleteTestData();
+        redisTemplate.opsForValue().set("email_verified:" + TEST_EMAIL, "true");
+
         SignupRequest signupRequest = new SignupRequest(
                 TEST_EMAIL, TEST_PASSWORD, TEST_PASSWORD,
-                "로그인테스트", "010-0000-0000", true, true, false
+                "로그인테스트", "010-0000-0000", true, true,
+                InvestmentType.BALANCED, "1234"
         );
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -49,8 +70,19 @@ class LoginIntegrationTest {
 
     @AfterEach
     void cleanup() {
-        userRepository.findByEmail(TEST_EMAIL)
-                .ifPresent(userRepository::delete);
+        redisTemplate.delete("email_verified:" + TEST_EMAIL);
+        deleteTestData();
+    }
+
+    private void deleteTestData() {
+        userRepository.findByEmail(TEST_EMAIL).ifPresent(user -> {
+            accountRepository.findByUser_UserId(user.getUserId()).ifPresent(account -> {
+                simulationRoundRepository.deleteByAccount_AccountId(account.getAccountId());
+                accountRepository.delete(account);
+            });
+            userConsentRepository.deleteById(user.getUserId());
+            userRepository.delete(user);
+        });
     }
 
     @Test
@@ -63,7 +95,6 @@ class LoginIntegrationTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").exists())
-                .andExpect(jsonPath("$.refreshToken").exists())
                 .andExpect(jsonPath("$.expiresIn").value(1800))
                 .andExpect(jsonPath("$.user.email").value(TEST_EMAIL))
                 .andExpect(jsonPath("$.user.name").value("로그인테스트"));

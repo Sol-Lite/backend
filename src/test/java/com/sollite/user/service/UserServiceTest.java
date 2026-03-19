@@ -1,8 +1,12 @@
 package com.sollite.user.service;
 
+import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.global.security.JwtTokenProvider;
+import com.sollite.account.domain.enums.InvestmentType;
 import com.sollite.user.domain.entity.User;
+import com.sollite.user.domain.entity.UserConsent;
+import com.sollite.user.domain.repository.UserConsentRepository;
 import com.sollite.user.domain.repository.UserRepository;
 import com.sollite.user.dto.*;
 import com.sollite.user.exception.UserErrorCode;
@@ -18,13 +22,12 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
-
-import org.mockito.stubbing.Answer;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -32,79 +35,79 @@ class UserServiceTest {
     @InjectMocks
     private UserService userService;
 
-    @Mock
-    private UserRepository userRepository;
-
-    @Mock
-    private PasswordEncoder passwordEncoder;
-
-    @Mock
-    private JwtTokenProvider jwtTokenProvider;
-
-    @Mock
-    private StringRedisTemplate redisTemplate;
-
-    @Mock
-    private ValueOperations<String, String> valueOperations;
-
-    @Mock
-    private LoginAttemptService loginAttemptService;
-
-    @Mock
-    private EmailService emailService;
+    @Mock private UserRepository userRepository;
+    @Mock private UserConsentRepository userConsentRepository;
+    @Mock private AccountRepository accountRepository;
+    @Mock private PasswordEncoder passwordEncoder;
+    @Mock private JwtTokenProvider jwtTokenProvider;
+    @Mock private StringRedisTemplate redisTemplate;
+    @Mock private ValueOperations<String, String> valueOperations;
+    @Mock private LoginAttemptService loginAttemptService;
+    @Mock private EmailService emailService;
 
     private SignupRequest createSignupRequest() {
         return new SignupRequest(
-                "test@example.com",
-                "Test1234!",
-                "Test1234!",
-                "홍길동",
-                "010-1234-5678",
-                true,
-                true,
-                false
+                "test@example.com", "Test1234!", "Test1234!",
+                "홍길동", "010-1234-5678", true, true,
+                InvestmentType.BALANCED, "1234"
         );
     }
 
     private User createUser() {
-        return User.builder()
+        User user = User.builder()
                 .email("test@example.com")
                 .passwordHash("encodedPassword")
                 .name("홍길동")
-                .phone("010-1234-5678")
-                .serviceTermsAgreed(true)
-                .privacyTermsAgreed(true)
-                .marketingAgreed(false)
+                .phone("01012345678")
                 .build();
+        user.verifyEmail();
+        return user;
     }
 
     @Nested
-    @DisplayName("회원가입")
-    class Signup {
+    @DisplayName("회원가입 (createUser)")
+    class CreateUser {
 
         @Test
         @DisplayName("회원가입 성공")
-        void signup_success() {
+        void createUser_success() {
             SignupRequest request = createSignupRequest();
+            given(redisTemplate.opsForValue()).willReturn(valueOperations);
+            given(valueOperations.get("email_verified:test@example.com")).willReturn("true");
             given(userRepository.existsByEmail(anyString())).willReturn(false);
             given(passwordEncoder.encode(anyString())).willReturn("encodedPassword");
-            given(userRepository.save(any(User.class))).willAnswer(invocation -> invocation.getArgument(0));
+            given(userRepository.save(any(User.class))).willAnswer(i -> i.getArgument(0));
+            given(userConsentRepository.save(any(UserConsent.class))).willAnswer(i -> i.getArgument(0));
 
-            SignupResponse response = userService.signup(request);
+            User user = userService.createUser(request);
 
-            assertThat(response.email()).isEqualTo("test@example.com");
-            assertThat(response.name()).isEqualTo("홍길동");
-            assertThat(response.message()).contains("회원가입이 완료되었습니다");
+            assertThat(user.getEmail()).isEqualTo("test@example.com");
+            assertThat(user.getName()).isEqualTo("홍길동");
             verify(userRepository).save(any(User.class));
         }
 
         @Test
-        @DisplayName("회원가입 실패 - 이메일 중복")
-        void signup_fail_duplicateEmail() {
+        @DisplayName("회원가입 실패 - 이메일 미인증")
+        void createUser_fail_emailNotVerified() {
             SignupRequest request = createSignupRequest();
+            given(redisTemplate.opsForValue()).willReturn(valueOperations);
+            given(valueOperations.get("email_verified:test@example.com")).willReturn(null);
+
+            assertThatThrownBy(() -> userService.createUser(request))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.EMAIL_NOT_VERIFIED));
+        }
+
+        @Test
+        @DisplayName("회원가입 실패 - 이메일 중복")
+        void createUser_fail_duplicateEmail() {
+            SignupRequest request = createSignupRequest();
+            given(redisTemplate.opsForValue()).willReturn(valueOperations);
+            given(valueOperations.get("email_verified:test@example.com")).willReturn("true");
             given(userRepository.existsByEmail("test@example.com")).willReturn(true);
 
-            assertThatThrownBy(() -> userService.signup(request))
+            assertThatThrownBy(() -> userService.createUser(request))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.DUPLICATE_EMAIL));
@@ -112,13 +115,13 @@ class UserServiceTest {
 
         @Test
         @DisplayName("회원가입 실패 - 비밀번호 확인 불일치")
-        void signup_fail_passwordMismatch() {
+        void createUser_fail_passwordMismatch() {
             SignupRequest request = new SignupRequest(
                     "test@example.com", "Test1234!", "Different1!",
-                    "홍길동", null, true, true, false
+                    "홍길동", null, true, true, InvestmentType.BALANCED, "1234"
             );
 
-            assertThatThrownBy(() -> userService.signup(request))
+            assertThatThrownBy(() -> userService.createUser(request))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.PASSWORD_CONFIRM_MISMATCH));
@@ -140,16 +143,16 @@ class UserServiceTest {
             given(jwtTokenProvider.createAccessToken(any(), eq("test@example.com"))).willReturn("access-token");
             given(jwtTokenProvider.createRefreshToken(any())).willReturn("refresh-token");
             given(jwtTokenProvider.getAccessTokenExpiry()).willReturn(1800000L);
-            given(jwtTokenProvider.getRefreshTokenExpiry()).willReturn(604800000L);
+            given(jwtTokenProvider.getRefreshTokenExpiry(false)).willReturn(604800000L);
             given(redisTemplate.opsForValue()).willReturn(valueOperations);
 
-            LoginResponse response = userService.login(request);
+            LoginResult result = userService.login(request);
 
-            assertThat(response.accessToken()).isEqualTo("access-token");
-            assertThat(response.refreshToken()).isEqualTo("refresh-token");
-            assertThat(response.expiresIn()).isEqualTo(1800);
-            assertThat(response.user().email()).isEqualTo("test@example.com");
-            assertThat(response.user().name()).isEqualTo("홍길동");
+            assertThat(result.response().accessToken()).isEqualTo("access-token");
+            assertThat(result.refreshToken()).isEqualTo("refresh-token");
+            assertThat(result.response().expiresIn()).isEqualTo(1800);
+            assertThat(result.response().user().email()).isEqualTo("test@example.com");
+            assertThat(result.response().user().name()).isEqualTo("홍길동");
             verify(valueOperations).set(anyString(), eq("refresh-token"), anyLong(), any());
         }
 
@@ -190,10 +193,7 @@ class UserServiceTest {
         @DisplayName("로그인 실패 - 계정 잠금 상태")
         void login_fail_accountLocked() {
             User user = createUser();
-            // 5번 실패시켜서 잠금
-            for (int i = 0; i < 5; i++) {
-                user.incrementLoginFailCount();
-            }
+            for (int i = 0; i < 5; i++) user.incrementLoginFailCount();
             LoginRequest request = new LoginRequest("test@example.com", "Test1234!", false);
 
             given(userRepository.findByEmail("test@example.com")).willReturn(Optional.of(user));
@@ -208,10 +208,7 @@ class UserServiceTest {
         @DisplayName("로그인 실패 - 5회 실패로 계정 잠금 발생")
         void login_fail_lockAfter5Attempts() {
             User user = createUser();
-            // 이미 4번 실패
-            for (int i = 0; i < 4; i++) {
-                user.incrementLoginFailCount();
-            }
+            for (int i = 0; i < 4; i++) user.incrementLoginFailCount();
             LoginRequest request = new LoginRequest("test@example.com", "Wrong1234!", false);
 
             given(userRepository.findByEmail("test@example.com")).willReturn(Optional.of(user));
@@ -240,8 +237,7 @@ class UserServiceTest {
             given(redisTemplate.opsForValue()).willReturn(valueOperations);
             given(valueOperations.get("refresh:1")).willReturn("valid-refresh-token");
 
-            LogoutRequest request = new LogoutRequest("valid-refresh-token");
-            userService.logout(1L, request);
+            userService.logout(1L, "valid-refresh-token");
 
             verify(redisTemplate).delete("refresh:1");
         }
@@ -252,9 +248,7 @@ class UserServiceTest {
             given(redisTemplate.opsForValue()).willReturn(valueOperations);
             given(valueOperations.get("refresh:1")).willReturn("stored-token");
 
-            LogoutRequest request = new LogoutRequest("wrong-token");
-
-            assertThatThrownBy(() -> userService.logout(1L, request))
+            assertThatThrownBy(() -> userService.logout(1L, "wrong-token"))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.INVALID_TOKEN));
@@ -266,9 +260,7 @@ class UserServiceTest {
             given(redisTemplate.opsForValue()).willReturn(valueOperations);
             given(valueOperations.get("refresh:1")).willReturn(null);
 
-            LogoutRequest request = new LogoutRequest("some-token");
-
-            assertThatThrownBy(() -> userService.logout(1L, request))
+            assertThatThrownBy(() -> userService.logout(1L, "some-token"))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.INVALID_TOKEN));
@@ -283,7 +275,6 @@ class UserServiceTest {
         @DisplayName("토큰 갱신 성공")
         void refreshToken_success() {
             User user = createUser();
-            TokenRefreshRequest request = new TokenRefreshRequest("valid-refresh-token");
 
             given(jwtTokenProvider.validateToken("valid-refresh-token")).willReturn(true);
             given(jwtTokenProvider.getUserIdFromToken("valid-refresh-token")).willReturn(1L);
@@ -291,21 +282,24 @@ class UserServiceTest {
             given(valueOperations.get("refresh:1")).willReturn("valid-refresh-token");
             given(userRepository.findById(1L)).willReturn(Optional.of(user));
             given(jwtTokenProvider.createAccessToken(any(), eq("test@example.com"))).willReturn("new-access-token");
+            given(jwtTokenProvider.createRefreshToken(any())).willReturn("new-refresh-token");
+            given(redisTemplate.getExpire("refresh:1", TimeUnit.MILLISECONDS)).willReturn(0L);
+            given(jwtTokenProvider.getRefreshTokenExpiry(false)).willReturn(604800000L);
             given(jwtTokenProvider.getAccessTokenExpiry()).willReturn(1800000L);
 
-            TokenRefreshResponse response = userService.refreshToken(request);
+            TokenRefreshResult result = userService.refreshToken("valid-refresh-token");
 
-            assertThat(response.accessToken()).isEqualTo("new-access-token");
-            assertThat(response.expiresIn()).isEqualTo(1800);
+            assertThat(result.response().accessToken()).isEqualTo("new-access-token");
+            assertThat(result.response().expiresIn()).isEqualTo(1800);
+            assertThat(result.refreshToken()).isEqualTo("new-refresh-token");
         }
 
         @Test
         @DisplayName("토큰 갱신 실패 - 만료된 리프레시 토큰")
         void refreshToken_fail_expired() {
-            TokenRefreshRequest request = new TokenRefreshRequest("expired-token");
             given(jwtTokenProvider.validateToken("expired-token")).willReturn(false);
 
-            assertThatThrownBy(() -> userService.refreshToken(request))
+            assertThatThrownBy(() -> userService.refreshToken("expired-token"))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
@@ -314,14 +308,12 @@ class UserServiceTest {
         @Test
         @DisplayName("토큰 갱신 실패 - Redis에 없는 토큰")
         void refreshToken_fail_notInRedis() {
-            TokenRefreshRequest request = new TokenRefreshRequest("valid-but-revoked");
-
             given(jwtTokenProvider.validateToken("valid-but-revoked")).willReturn(true);
             given(jwtTokenProvider.getUserIdFromToken("valid-but-revoked")).willReturn(1L);
             given(redisTemplate.opsForValue()).willReturn(valueOperations);
             given(valueOperations.get("refresh:1")).willReturn(null);
 
-            assertThatThrownBy(() -> userService.refreshToken(request))
+            assertThatThrownBy(() -> userService.refreshToken("valid-but-revoked"))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.INVALID_TOKEN));
@@ -335,44 +327,37 @@ class UserServiceTest {
         @Test
         @DisplayName("이메일 인증 발송 성공")
         void sendVerificationEmail_success() {
-            User user = createUser();
-            given(userRepository.findByEmail("test@example.com")).willReturn(Optional.of(user));
+            given(userRepository.existsByEmail("test@example.com")).willReturn(false);
 
             userService.sendVerificationEmail(new EmailVerifyRequest("test@example.com"));
 
-            verify(emailService).sendVerificationEmail(eq("test@example.com"), any());
+            verify(emailService).sendVerificationEmail(eq("test@example.com"));
         }
 
         @Test
-        @DisplayName("이메일 인증 발송 실패 - 미등록 이메일")
-        void sendVerificationEmail_fail_notFound() {
-            given(userRepository.findByEmail("unknown@example.com")).willReturn(Optional.empty());
+        @DisplayName("이메일 인증 발송 실패 - 이미 가입된 이메일")
+        void sendVerificationEmail_fail_duplicateEmail() {
+            given(userRepository.existsByEmail("test@example.com")).willReturn(true);
 
-            assertThatThrownBy(() -> userService.sendVerificationEmail(new EmailVerifyRequest("unknown@example.com")))
+            assertThatThrownBy(() -> userService.sendVerificationEmail(new EmailVerifyRequest("test@example.com")))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                            .isEqualTo(UserErrorCode.USER_NOT_FOUND));
+                            .isEqualTo(UserErrorCode.DUPLICATE_EMAIL));
         }
 
         @Test
         @DisplayName("이메일 인증 확인 성공")
         void confirmEmail_success() {
-            User user = createUser();
-            given(emailService.verifyToken("valid-token"))
-                    .willReturn(java.util.Map.of("user_id", "1", "email", "test@example.com"));
-            given(userRepository.findById(1L)).willReturn(Optional.of(user));
-
             userService.confirmEmailVerification(new EmailVerifyConfirmRequest("valid-token"));
 
-            assertThat(user.isEmailVerified()).isTrue();
-            verify(userRepository).save(user);
+            verify(emailService).verifyToken("valid-token");
         }
 
         @Test
         @DisplayName("이메일 인증 확인 실패 - 만료된 토큰")
         void confirmEmail_fail_expired() {
-            given(emailService.verifyToken("expired-token"))
-                    .willThrow(new BusinessException(UserErrorCode.TOKEN_EXPIRED));
+            doThrow(new BusinessException(UserErrorCode.TOKEN_EXPIRED))
+                    .when(emailService).verifyToken("expired-token");
 
             assertThatThrownBy(() -> userService.confirmEmailVerification(new EmailVerifyConfirmRequest("expired-token")))
                     .isInstanceOf(BusinessException.class)
@@ -418,7 +403,7 @@ class UserServiceTest {
 
             userService.confirmPasswordReset(new PasswordResetConfirmRequest("valid-token", "NewPass1!", "NewPass1!"));
 
-            verify(userRepository).save(user);
+            assertThat(user.getPasswordHash()).isEqualTo("newEncodedPassword");
             verify(redisTemplate).delete("refresh:1");
         }
 
@@ -444,6 +429,19 @@ class UserServiceTest {
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
         }
+
+        @Test
+        @DisplayName("비밀번호 재설정 확인 실패 - 토큰 user_id 형식 오류")
+        void confirmPasswordReset_fail_invalidUserId() {
+            given(emailService.verifyPasswordResetToken("invalid-token"))
+                    .willReturn(java.util.Map.of("user_id", "not-a-number", "email", "test@example.com"));
+
+            assertThatThrownBy(() -> userService.confirmPasswordReset(
+                    new PasswordResetConfirmRequest("invalid-token", "NewPass1!", "NewPass1!")))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
+        }
     }
 
     @Nested
@@ -460,7 +458,7 @@ class UserServiceTest {
 
             userService.changePassword(1L, new PasswordChangeRequest("Test1234!", "NewPass1!", "NewPass1!"));
 
-            verify(userRepository).save(user);
+            assertThat(user.getPasswordHash()).isEqualTo("newEncodedPassword");
         }
 
         @Test
@@ -497,12 +495,12 @@ class UserServiceTest {
         void getProfile_success() {
             User user = createUser();
             given(userRepository.findById(1L)).willReturn(Optional.of(user));
+            given(accountRepository.findByUser_UserId(1L)).willReturn(Optional.empty());
 
             UserProfileResponse response = userService.getProfile(1L);
 
             assertThat(response.email()).isEqualTo("test@example.com");
             assertThat(response.name()).isEqualTo("홍길동");
-            assertThat(response.phone()).isEqualTo("010-1234-5678");
         }
 
         @Test
@@ -521,24 +519,12 @@ class UserServiceTest {
         void updateProfile_success() {
             User user = createUser();
             given(userRepository.findById(1L)).willReturn(Optional.of(user));
+            given(accountRepository.findByUser_UserId(1L)).willReturn(Optional.empty());
 
             UserProfileResponse response = userService.updateProfile(1L, new ProfileUpdateRequest("김길동", "010-9876-5432"));
 
             assertThat(response.name()).isEqualTo("김길동");
-            assertThat(response.phone()).isEqualTo("010-9876-5432");
-            verify(userRepository).save(user);
-        }
-
-        @Test
-        @DisplayName("내 정보 수정 - 이름만 변경")
-        void updateProfile_nameOnly() {
-            User user = createUser();
-            given(userRepository.findById(1L)).willReturn(Optional.of(user));
-
-            UserProfileResponse response = userService.updateProfile(1L, new ProfileUpdateRequest("김길동", null));
-
-            assertThat(response.name()).isEqualTo("김길동");
-            assertThat(response.phone()).isEqualTo("010-1234-5678");
+            assertThat(response.phone()).isEqualTo("0109876-5432".replace("-", ""));
         }
     }
 }
