@@ -1,6 +1,8 @@
 spring:
   application:
     name: sol-lite-backend
+  profiles:
+    active: local
 
   # ── Oracle (JPA) ──
   datasource:
