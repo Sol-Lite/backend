@@ -7,6 +7,7 @@ import com.sollite.market.exception.MarketErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.query.Order;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -476,6 +477,97 @@ class LsMarketServiceImpl implements MarketService {
             throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
         } catch (Exception e) {
             log.error("투자자 동향 조회 중 예외 발생: stockCode={}", stockCode, e);
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+    }
+
+    @Override
+    public OrderbookResponse getOrderbook(String stockCode) {
+        return getOrderbook(stockCode, false);
+    }
+
+    private OrderbookResponse getOrderbook(String stockCode, boolean isRetry) {
+        String token = tokenService.getAccessToken();
+        try {
+            record LsReqBody(String shcode) {}
+            record LsReq(LsReqBody t1101InBlock) {}
+
+            String raw = lsWebClient.post()
+                    .uri("/stock/market-data")
+                    .header("authorization", "Bearer " + token)
+                    .header("content-type", "application/json; charset=utf-8")
+                    .header("tr_cd", "t1101")
+                    .header("tr_cont", "N")
+                    .header("mac_address", DUMMY_MAC)
+                    .bodyValue(new LsReq(new LsReqBody(stockCode)))
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            log.debug("LS t1101 orderbook raw: {}", raw);
+            LsOrderbookRes lsRes = objectMapper.readValue(raw, LsOrderbookRes.class);
+
+            if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                log.warn("LS API 호가 조회 실패: stockCode={}, msg={}", stockCode,
+                        lsRes != null ? lsRes.rsp_msg() : "NULL");
+                throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+            }
+
+            LsOrderbookRes.LsOrderbookBlock b = lsRes.t1101OutBlock();
+            if (b == null) {
+                throw new BusinessException(MarketErrorCode.MARKET_DATA_NOT_FOUND);
+            }
+
+            List<OrderbookResponse.OrderEntry> asks = List.of(
+                    new OrderbookResponse.OrderEntry(b.offerho1(),  b.offerrem1()),
+                    new OrderbookResponse.OrderEntry(b.offerho2(),  b.offerrem2()),
+                    new OrderbookResponse.OrderEntry(b.offerho3(),  b.offerrem3()),
+                    new OrderbookResponse.OrderEntry(b.offerho4(),  b.offerrem4()),
+                    new OrderbookResponse.OrderEntry(b.offerho5(),  b.offerrem5()),
+                    new OrderbookResponse.OrderEntry(b.offerho6(),  b.offerrem6()),
+                    new OrderbookResponse.OrderEntry(b.offerho7(),  b.offerrem7()),
+                    new OrderbookResponse.OrderEntry(b.offerho8(),  b.offerrem8()),
+                    new OrderbookResponse.OrderEntry(b.offerho9(),  b.offerrem9()),
+                    new OrderbookResponse.OrderEntry(b.offerho10(), b.offerrem10())
+            );
+
+            List<OrderbookResponse.OrderEntry> bids = List.of(
+                    new OrderbookResponse.OrderEntry(b.bidho1(),  b.bidrem1()),
+                    new OrderbookResponse.OrderEntry(b.bidho2(),  b.bidrem2()),
+                    new OrderbookResponse.OrderEntry(b.bidho3(),  b.bidrem3()),
+                    new OrderbookResponse.OrderEntry(b.bidho4(),  b.bidrem4()),
+                    new OrderbookResponse.OrderEntry(b.bidho5(),  b.bidrem5()),
+                    new OrderbookResponse.OrderEntry(b.bidho6(),  b.bidrem6()),
+                    new OrderbookResponse.OrderEntry(b.bidho7(),  b.bidrem7()),
+                    new OrderbookResponse.OrderEntry(b.bidho8(),  b.bidrem8()),
+                    new OrderbookResponse.OrderEntry(b.bidho9(),  b.bidrem9()),
+                    new OrderbookResponse.OrderEntry(b.bidho10(), b.bidrem10())
+            );
+
+            return new OrderbookResponse(
+                    stockCode,
+                    b.hotime(),
+                    b.yeprice(),
+                    b.yevolume(),
+                    Double.parseDouble(b.yediff().trim()),
+                    b.offer(),
+                    b.bid(),
+                    b.toAsks(),
+                    b.toBids()
+            );
+
+        } catch (BusinessException e) {
+            throw e;
+        } catch (WebClientResponseException e) {
+            if (!isRetry && e.getStatusCode().value() == 401) {
+                log.warn("토큰 만료 감지 (401), 재발급 후 재시도: stockCode={}", stockCode);
+                tokenService.invalidateToken();
+                return getOrderbook(stockCode, true);
+            }
+            log.error("LS증권 API 호출 실패. HTTP 상태: {}, 응답: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        } catch (Exception e) {
+            log.error("호가 조회 중 예외 발생: stockCode={}", stockCode, e);
             throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
         }
     }
