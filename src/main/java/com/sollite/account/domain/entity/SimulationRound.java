@@ -31,8 +31,8 @@ public class SimulationRound {
     @Column(name = "initial_seed_amount", nullable = false, precision = 19, scale = 4)
     private BigDecimal initialSeedAmount;
 
-    @Column(name = "reset_reason_code", length = 50)
-    private String resetReasonCode;
+    @Column(name = "round_end_reason_code", length = 50)
+    private String roundEndReasonCode;
 
     @Column(name = "round_status", nullable = false, length = 20)
     private String roundStatus = "ACTIVE";
@@ -53,5 +53,11 @@ public class SimulationRound {
         this.roundNo = roundNo;
         this.initialSeedAmount = initialSeedAmount;
         this.startedAt = LocalDateTime.now();
+    }
+
+    public void close(String reasonCode) {
+        this.roundStatus = "CLOSED";
+        this.endedAt = LocalDateTime.now();
+        this.roundEndReasonCode = reasonCode;
     }
 }
