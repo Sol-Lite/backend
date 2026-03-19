@@ -2,6 +2,8 @@ package com.sollite.account.controller;
 
 import com.sollite.account.dto.AccountCloseRequest;
 import com.sollite.account.dto.AccountInfoResponse;
+import com.sollite.account.dto.AccountResetRequest;
+import com.sollite.account.dto.AccountResetResponse;
 import com.sollite.account.dto.PinChangeRequest;
 import com.sollite.account.dto.PinResetConfirmRequest;
 import com.sollite.account.dto.PinVerifyRequest;
@@ -101,6 +103,23 @@ public class AccountController {
     }
 
     /**
+     * 시뮬레이션을 초기화합니다. 현재 라운드를 종료하고 새 라운드를 시작합니다.
+     *
+     * @param authentication 현재 인증된 사용자 정보
+     * @param request 계좌 비밀번호
+     * @return 200 OK - 초기화 완료 메시지와 새 라운드 번호
+     * @throws BusinessException 계좌 미존재, 이미 폐쇄된 계좌, PIN 불일치, 활성 라운드 없음 시
+     */
+    @PostMapping("/reset")
+    public ResponseEntity<AccountResetResponse> resetAccount(
+            Authentication authentication,
+            @Valid @RequestBody AccountResetRequest request) {
+        Long userId = AuthUtil.getUserId(authentication);
+        AccountResetResponse response = accountService.resetAccount(userId, request.accountPin());
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * 계좌를 폐쇄합니다. PIN 인증 필수.
      * 잔고/보유자산/미체결주문 검증은 추후 추가 예정 (issue #15)
      *
@@ -118,4 +137,3 @@ public class AccountController {
         return ResponseEntity.ok(new MessageResponse("계좌가 폐쇄되었습니다."));
     }
 }
-

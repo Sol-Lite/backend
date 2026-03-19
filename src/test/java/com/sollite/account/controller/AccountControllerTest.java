@@ -1,6 +1,8 @@
 package com.sollite.account.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sollite.account.dto.AccountResetRequest;
+import com.sollite.account.dto.AccountResetResponse;
 import com.sollite.account.dto.PinChangeRequest;
 import com.sollite.account.dto.PinVerifyRequest;
 import com.sollite.account.exception.AccountErrorCode;
@@ -21,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -87,6 +90,43 @@ class AccountControllerTest {
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("INVALID_PIN"))
                     .andExpect(jsonPath("$.message").value("계좌 비밀번호가 올바르지 않습니다"));
+        }
+    }
+
+    @Nested
+    @DisplayName("시뮬레이션 리셋 API")
+    class ResetAccount {
+
+        @Test
+        @DisplayName("리셋 성공 시 200")
+        @WithMockUser(username = "1")
+        void resetAccount_success() throws Exception {
+            AccountResetRequest request = new AccountResetRequest("1234");
+            given(accountService.resetAccount(1L, "1234"))
+                    .willReturn(new AccountResetResponse("시뮬레이션이 초기화되었습니다.", 2));
+
+            mockMvc.perform(post("/api/accounts/reset")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value("시뮬레이션이 초기화되었습니다."))
+                    .andExpect(jsonPath("$.roundNo").value(2));
+        }
+
+        @Test
+        @DisplayName("PIN 형식 오류 시 400")
+        @WithMockUser(username = "1")
+        void resetAccount_fail_invalidPinFormat() throws Exception {
+            AccountResetRequest request = new AccountResetRequest("12ab");
+
+            mockMvc.perform(post("/api/accounts/reset")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+                    .andExpect(jsonPath("$.errors.accountPin").value("계좌 비밀번호는 숫자 4자리입니다"));
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.sollite.account.domain.entity;
 
+import com.sollite.account.domain.enums.RoundEndReasonCode;
+import com.sollite.account.domain.enums.RoundStatus;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -31,11 +33,13 @@ public class SimulationRound {
     @Column(name = "initial_seed_amount", nullable = false, precision = 19, scale = 4)
     private BigDecimal initialSeedAmount;
 
-    @Column(name = "reset_reason_code", length = 50)
-    private String resetReasonCode;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "round_end_reason_code", length = 50)
+    private RoundEndReasonCode roundEndReasonCode;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "round_status", nullable = false, length = 20)
-    private String roundStatus = "ACTIVE";
+    private RoundStatus roundStatus = RoundStatus.ACTIVE;
 
     @Column(name = "started_at", nullable = false)
     private LocalDateTime startedAt;
@@ -53,5 +57,11 @@ public class SimulationRound {
         this.roundNo = roundNo;
         this.initialSeedAmount = initialSeedAmount;
         this.startedAt = LocalDateTime.now();
+    }
+
+    public void close(RoundEndReasonCode reasonCode) {
+        this.roundStatus = RoundStatus.CLOSED;
+        this.endedAt = LocalDateTime.now();
+        this.roundEndReasonCode = reasonCode;
     }
 }

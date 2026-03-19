@@ -1,10 +1,14 @@
 package com.sollite.account.service;
 
 import com.sollite.account.domain.entity.Account;
+import com.sollite.account.domain.entity.SimulationRound;
 import com.sollite.account.domain.enums.InvestmentType;
+import com.sollite.account.domain.enums.RoundEndReasonCode;
+import com.sollite.account.domain.enums.RoundStatus;
 import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.account.domain.repository.SimulationRoundRepository;
 import com.sollite.account.dto.AccountInfoResponse;
+import com.sollite.account.dto.AccountResetResponse;
 import com.sollite.account.exception.AccountErrorCode;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.user.domain.entity.User;
@@ -19,7 +23,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Optional;
 
@@ -65,6 +71,14 @@ class AccountServiceTest {
                 .accountName("종합계좌 홍길동")
                 .accountPinHash("encodedPin")
                 .investmentTendency(InvestmentType.BALANCED)
+                .build();
+    }
+
+    private SimulationRound createSimulationRound(Account account, int roundNo) {
+        return SimulationRound.builder()
+                .account(account)
+                .roundNo(roundNo)
+                .initialSeedAmount(new BigDecimal("100000000"))
                 .build();
     }
 
@@ -273,6 +287,98 @@ class AccountServiceTest {
     }
 
     @Nested
+    @DisplayName("시뮬레이션 리셋")
+    class ResetAccount {
+
+        @Test
+        @DisplayName("리셋 성공")
+        void resetAccount_success() {
+            User user = createUser();
+            Account account = createAccount(user);
+            ReflectionTestUtils.setField(account, "accountId", 1L);
+            SimulationRound currentRound = createSimulationRound(account, 1);
+
+            given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
+            given(passwordEncoder.matches("1234", "encodedPin")).willReturn(true);
+            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, RoundStatus.ACTIVE))
+                    .willReturn(Optional.of(currentRound));
+            given(simulationRoundRepository.save(any(SimulationRound.class))).willAnswer(i -> i.getArgument(0));
+
+            AccountResetResponse response = accountService.resetAccount(1L, "1234");
+
+            assertThat(response.roundNo()).isEqualTo(2);
+            assertThat(currentRound.getRoundStatus()).isEqualTo(RoundStatus.CLOSED);
+            assertThat(currentRound.getRoundEndReasonCode()).isEqualTo(RoundEndReasonCode.RESET);
+            assertThat(currentRound.getEndedAt()).isNotNull();
+
+            verify(simulationRoundRepository).save(argThat(newRound ->
+                    newRound.getAccount() == account
+                            && newRound.getRoundNo().equals(2)
+                            && newRound.getInitialSeedAmount().compareTo(new BigDecimal("100000000")) == 0
+            ));
+        }
+
+        @Test
+        @DisplayName("리셋 실패 - PIN 불일치")
+        void resetAccount_fail_wrongPin() {
+            User user = createUser();
+            Account account = createAccount(user);
+
+            given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
+            given(passwordEncoder.matches("9999", "encodedPin")).willReturn(false);
+
+            assertThatThrownBy(() -> accountService.resetAccount(1L, "9999"))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(AccountErrorCode.INVALID_PIN));
+        }
+
+        @Test
+        @DisplayName("리셋 실패 - 비활성 계좌")
+        void resetAccount_fail_inactiveAccount() {
+            User user = createUser();
+            Account account = createAccount(user);
+            account.close();
+
+            given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
+
+            assertThatThrownBy(() -> accountService.resetAccount(1L, "1234"))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(AccountErrorCode.ACCOUNT_NOT_ACTIVE));
+        }
+
+        @Test
+        @DisplayName("리셋 실패 - 활성 라운드 없음")
+        void resetAccount_fail_noActiveRound() {
+            User user = createUser();
+            Account account = createAccount(user);
+            ReflectionTestUtils.setField(account, "accountId", 1L);
+
+            given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
+            given(passwordEncoder.matches("1234", "encodedPin")).willReturn(true);
+            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, RoundStatus.ACTIVE))
+                    .willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> accountService.resetAccount(1L, "1234"))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
+        }
+
+        @Test
+        @DisplayName("리셋 실패 - 계좌 없음")
+        void resetAccount_fail_noAccount() {
+            given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> accountService.resetAccount(1L, "1234"))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(AccountErrorCode.ACCOUNT_NOT_FOUND));
+        }
+    }
+
+    @Nested
     @DisplayName("계좌 폐쇄")
     class CloseAccount {
 
@@ -281,12 +387,19 @@ class AccountServiceTest {
         void closeAccount_success() {
             User user = createUser();
             Account account = createAccount(user);
-            given(accountRepository.findByUser_UserId(1L)).willReturn(Optional.of(account));
+            ReflectionTestUtils.setField(account, "accountId", 1L);
+            SimulationRound currentRound = createSimulationRound(account, 1);
+            given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
             given(passwordEncoder.matches("1234", "encodedPin")).willReturn(true);
+            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, RoundStatus.ACTIVE))
+                    .willReturn(Optional.of(currentRound));
 
             accountService.closeAccount(1L, "1234");
 
             assertThat(account.isActive()).isFalse();
+            assertThat(currentRound.getRoundStatus()).isEqualTo(RoundStatus.CLOSED);
+            assertThat(currentRound.getRoundEndReasonCode()).isEqualTo(RoundEndReasonCode.ACCOUNT_CLOSED);
+            assertThat(currentRound.getEndedAt()).isNotNull();
         }
 
         @Test
@@ -294,7 +407,7 @@ class AccountServiceTest {
         void closeAccount_fail_wrongPin() {
             User user = createUser();
             Account account = createAccount(user);
-            given(accountRepository.findByUser_UserId(1L)).willReturn(Optional.of(account));
+            given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
             given(passwordEncoder.matches("9999", "encodedPin")).willReturn(false);
 
             assertThatThrownBy(() -> accountService.closeAccount(1L, "9999"))
@@ -304,12 +417,30 @@ class AccountServiceTest {
         }
 
         @Test
+        @DisplayName("계좌 폐쇄 실패 - 활성 라운드 없음")
+        void closeAccount_fail_noActiveRound() {
+            User user = createUser();
+            Account account = createAccount(user);
+            ReflectionTestUtils.setField(account, "accountId", 1L);
+
+            given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
+            given(passwordEncoder.matches("1234", "encodedPin")).willReturn(true);
+            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, RoundStatus.ACTIVE))
+                    .willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> accountService.closeAccount(1L, "1234"))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
+        }
+
+        @Test
         @DisplayName("계좌 폐쇄 실패 - 이미 폐쇄된 계좌")
         void closeAccount_fail_alreadyClosed() {
             User user = createUser();
             Account account = createAccount(user);
             account.close();
-            given(accountRepository.findByUser_UserId(1L)).willReturn(Optional.of(account));
+            given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
 
             assertThatThrownBy(() -> accountService.closeAccount(1L, "1234"))
                     .isInstanceOf(BusinessException.class)
@@ -320,7 +451,7 @@ class AccountServiceTest {
         @Test
         @DisplayName("계좌 폐쇄 실패 - 계좌 없음")
         void closeAccount_fail_noAccount() {
-            given(accountRepository.findByUser_UserId(1L)).willReturn(Optional.empty());
+            given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> accountService.closeAccount(1L, "1234"))
                     .isInstanceOf(BusinessException.class)
