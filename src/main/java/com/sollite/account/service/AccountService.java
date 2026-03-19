@@ -3,9 +3,12 @@ package com.sollite.account.service;
 import com.sollite.account.domain.entity.Account;
 import com.sollite.account.domain.entity.SimulationRound;
 import com.sollite.account.domain.enums.InvestmentType;
+import com.sollite.account.domain.enums.RoundEndReasonCode;
+import com.sollite.account.domain.enums.RoundStatus;
 import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.account.domain.repository.SimulationRoundRepository;
 import com.sollite.account.dto.AccountInfoResponse;
+import com.sollite.account.dto.AccountResetResponse;
 import com.sollite.account.exception.AccountErrorCode;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.user.domain.entity.User;
@@ -117,8 +120,40 @@ public class AccountService {
     }
 
     @Transactional
+    public AccountResetResponse resetAccount(Long userId, String accountPin) {
+        Account account = accountRepository.findByUserIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
+
+        if (!account.isActive()) {
+            throw new BusinessException(AccountErrorCode.ACCOUNT_NOT_ACTIVE);
+        }
+
+        if (!passwordEncoder.matches(accountPin, account.getAccountPinHash())) {
+            throw new BusinessException(AccountErrorCode.INVALID_PIN);
+        }
+
+        SimulationRound currentRound = simulationRoundRepository
+                .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), RoundStatus.ACTIVE)
+                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
+
+        currentRound.close(RoundEndReasonCode.RESET);
+
+        SimulationRound newRound = SimulationRound.builder()
+                .account(account)
+                .roundNo(currentRound.getRoundNo() + 1)
+                .initialSeedAmount(SEED_MONEY)
+                .build();
+
+        simulationRoundRepository.save(newRound);
+
+        // TODO: balance 도메인 구현 후 새 라운드 현금 잔고를 1억원으로 초기화한다.
+
+        return new AccountResetResponse("시뮬레이션이 초기화되었습니다.", newRound.getRoundNo());
+    }
+
+    @Transactional
     public void closeAccount(Long userId, String accountPin) {
-        Account account = accountRepository.findByUser_UserId(userId)
+        Account account = accountRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
 
         if (!account.isActive()) {
@@ -133,6 +168,11 @@ public class AccountService {
         // TODO: 보유 주식/ETF 있으면 폐쇄 불가 — holdings 도메인 구현 후 추가 (issue #15)
         // TODO: 미체결 주문 있으면 폐쇄 불가 — order 도메인 구현 후 추가 (issue #15)
 
+        SimulationRound currentRound = simulationRoundRepository
+                .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), RoundStatus.ACTIVE)
+                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
+
+        currentRound.close(RoundEndReasonCode.ACCOUNT_CLOSED);
         account.close();
     }
 
