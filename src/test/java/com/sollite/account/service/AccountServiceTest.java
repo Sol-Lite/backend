@@ -3,6 +3,8 @@ package com.sollite.account.service;
 import com.sollite.account.domain.entity.Account;
 import com.sollite.account.domain.entity.SimulationRound;
 import com.sollite.account.domain.enums.InvestmentType;
+import com.sollite.account.domain.enums.RoundEndReasonCode;
+import com.sollite.account.domain.enums.RoundStatus;
 import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.account.domain.repository.SimulationRoundRepository;
 import com.sollite.account.dto.AccountInfoResponse;
@@ -298,15 +300,15 @@ class AccountServiceTest {
 
             given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
             given(passwordEncoder.matches("1234", "encodedPin")).willReturn(true);
-            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, "ACTIVE"))
+            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, RoundStatus.ACTIVE))
                     .willReturn(Optional.of(currentRound));
             given(simulationRoundRepository.save(any(SimulationRound.class))).willAnswer(i -> i.getArgument(0));
 
             AccountResetResponse response = accountService.resetAccount(1L, "1234");
 
             assertThat(response.roundNo()).isEqualTo(2);
-            assertThat(currentRound.getRoundStatus()).isEqualTo("CLOSED");
-            assertThat(currentRound.getRoundEndReasonCode()).isEqualTo("RESET");
+            assertThat(currentRound.getRoundStatus()).isEqualTo(RoundStatus.CLOSED);
+            assertThat(currentRound.getRoundEndReasonCode()).isEqualTo(RoundEndReasonCode.RESET);
             assertThat(currentRound.getEndedAt()).isNotNull();
 
             verify(simulationRoundRepository).save(argThat(newRound ->
@@ -355,7 +357,7 @@ class AccountServiceTest {
 
             given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
             given(passwordEncoder.matches("1234", "encodedPin")).willReturn(true);
-            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, "ACTIVE"))
+            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, RoundStatus.ACTIVE))
                     .willReturn(Optional.empty());
 
             assertThatThrownBy(() -> accountService.resetAccount(1L, "1234"))
@@ -389,14 +391,14 @@ class AccountServiceTest {
             SimulationRound currentRound = createSimulationRound(account, 1);
             given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
             given(passwordEncoder.matches("1234", "encodedPin")).willReturn(true);
-            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, "ACTIVE"))
+            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, RoundStatus.ACTIVE))
                     .willReturn(Optional.of(currentRound));
 
             accountService.closeAccount(1L, "1234");
 
             assertThat(account.isActive()).isFalse();
-            assertThat(currentRound.getRoundStatus()).isEqualTo("CLOSED");
-            assertThat(currentRound.getRoundEndReasonCode()).isEqualTo("ACCOUNT_CLOSED");
+            assertThat(currentRound.getRoundStatus()).isEqualTo(RoundStatus.CLOSED);
+            assertThat(currentRound.getRoundEndReasonCode()).isEqualTo(RoundEndReasonCode.ACCOUNT_CLOSED);
             assertThat(currentRound.getEndedAt()).isNotNull();
         }
 
@@ -423,7 +425,7 @@ class AccountServiceTest {
 
             given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
             given(passwordEncoder.matches("1234", "encodedPin")).willReturn(true);
-            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, "ACTIVE"))
+            given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, RoundStatus.ACTIVE))
                     .willReturn(Optional.empty());
 
             assertThatThrownBy(() -> accountService.closeAccount(1L, "1234"))
