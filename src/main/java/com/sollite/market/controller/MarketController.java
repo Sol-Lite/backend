@@ -58,4 +58,9 @@ public class MarketController {
     public ResponseEntity<InvestorResponse> getInvestor(@PathVariable String stockCode) {
         return ResponseEntity.ok(marketService.getInvestor(stockCode));
     }
+
+    @GetMapping("/stocks/{stockCode}/orderbook")
+    public ResponseEntity<OrderbookResponse> getOrderbook(@PathVariable String stockCode) {
+        return ResponseEntity.ok(marketService.getOrderbook(stockCode));
+    }
 }
