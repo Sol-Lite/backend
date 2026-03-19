@@ -4,7 +4,6 @@ import com.sollite.market.dto.*;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.parameters.P;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -52,7 +51,7 @@ public class MarketController {
 
     @GetMapping("/stocks/{stockCode}/opinion")
     public ResponseEntity<OpinionResponse> getOpinion(@PathVariable String stockCode) {
-        return ResponseEntity.ok(marketService.getOpinion((stockCode)));
+        return ResponseEntity.ok(marketService.getOpinion(stockCode));
     }
 
     @GetMapping("/stocks/{stockCode}/investor")

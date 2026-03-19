@@ -15,6 +15,4 @@ public record LsOpinionRes (
             int noga,           // 목표가 변경후
             int boga            // 목표가 변경전
     ) {}
-
-
 }
