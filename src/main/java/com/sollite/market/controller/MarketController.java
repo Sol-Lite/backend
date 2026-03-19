@@ -43,4 +43,19 @@ public class MarketController {
             @RequestParam(defaultValue = "1") int ncnt) {
         return ResponseEntity.ok(marketService.getMinuteChart(stockCode, ncnt));
     }
+
+    @GetMapping("/stocks/{stockCode}/finance")
+    public ResponseEntity<FinanceResponse> getFinance(@PathVariable String stockCode) {
+        return ResponseEntity.ok(marketService.getFinance(stockCode));
+    }
+
+    @GetMapping("/stocks/{stockCode}/opinion")
+    public ResponseEntity<OpinionResponse> getOpinion(@PathVariable String stockCode) {
+        return ResponseEntity.ok(marketService.getOpinion(stockCode));
+    }
+
+    @GetMapping("/stocks/{stockCode}/investor")
+    public ResponseEntity<InvestorResponse> getInvestor(@PathVariable String stockCode) {
+        return ResponseEntity.ok(marketService.getInvestor(stockCode));
+    }
 }
