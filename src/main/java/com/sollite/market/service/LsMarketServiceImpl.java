@@ -151,8 +151,8 @@ class LsMarketServiceImpl implements MarketService {
     private ChartResponse getChart(String stockCode, ChartPeriod period, LocalDate startDate, LocalDate endDate, boolean isRetry) {
         String token = tokenService.getAccessToken();
         try {
-            record LsReqBody(String shcode, String gubun, int qrycnt, String sdate, String edate, String cts_date, String comp_yn, String sujung) {}
-            record LsReq(LsReqBody t8410InBlock) {}
+            record LsReqBody(String shcode, String gubun, int qrycnt, String sdate, String edate, String cts_date, String comp_yn, String sujung, String exchgubun) {}
+            record LsReq(LsReqBody t8451InBlock) {}
 
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyyMMdd");
 
@@ -160,7 +160,7 @@ class LsMarketServiceImpl implements MarketService {
                     .uri("/stock/chart")
                     .header("authorization", "Bearer " + token)
                     .header("content-type", "application/json; charset=utf-8")
-                    .header("tr_cd", "t8410")
+                    .header("tr_cd", "t8451")
                     .header("tr_cont", "N")
                     .header("mac_address", DUMMY_MAC)
                     .bodyValue(new LsReq(new LsReqBody(
@@ -168,15 +168,16 @@ class LsMarketServiceImpl implements MarketService {
                             String.valueOf(period.getGubun()),
                             500,
                             startDate.format(fmt),
-                            endDate.format(fmt),
+                            "99999999",
                             " ",
                             "N",
-                            "Y"
+                            "Y",
+                            "K"
                     )))
                     .retrieve()
                     .bodyToMono(String.class)
                     .block();
-            log.debug("LS t8410 chart raw: {}", raw);
+            log.debug("LS t8451 chart raw: {}", raw);
             LsChartRes lsRes = objectMapper.readValue(raw, LsChartRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
@@ -185,9 +186,13 @@ class LsMarketServiceImpl implements MarketService {
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
             }
 
-            List<LsChartRes.LsChartItem> rawList = lsRes.t8410OutBlock1() != null ? lsRes.t8410OutBlock1() : List.of();
+            List<LsChartRes.LsChartItem> rawList = lsRes.t8451OutBlock1() != null ? lsRes.t8451OutBlock1() : List.of();
 
             List<ChartResponse.ChartDataPoint> dataPoints = rawList.stream()
+                    .filter(item -> {
+                        LocalDate d = LocalDate.parse(item.date(), fmt);
+                        return !d.isBefore(startDate) && !d.isAfter(endDate);
+                    })
                     .map(item -> new ChartResponse.ChartDataPoint(
                             LocalDate.parse(item.date(), fmt),
                             item.open(),
