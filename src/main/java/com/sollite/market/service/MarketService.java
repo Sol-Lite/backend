@@ -8,6 +8,8 @@ import com.sollite.market.dto.MinuteChartResponse;
 import com.sollite.market.dto.FinanceResponse;
 import com.sollite.market.dto.OpinionResponse;
 import com.sollite.market.dto.InvestorResponse;
+import com.sollite.market.dto.OrderbookResponse;
+import org.hibernate.query.Order;
 
 import java.time.LocalDate;
 
@@ -19,4 +21,5 @@ public interface MarketService {
     FinanceResponse getFinance(String stockCode);
     OpinionResponse getOpinion(String stockCode);
     InvestorResponse getInvestor(String stockCode);
+    OrderbookResponse getOrderbook(String stockCode);
 }
