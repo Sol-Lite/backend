@@ -4,6 +4,7 @@ import com.sollite.market.dto.*;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.parameters.P;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -42,5 +43,20 @@ public class MarketController {
             @PathVariable String stockCode,
             @RequestParam(defaultValue = "1") int ncnt) {
         return ResponseEntity.ok(marketService.getMinuteChart(stockCode, ncnt));
+    }
+
+    @GetMapping("/stocks/{stockCode}/finance")
+    public ResponseEntity<FinanceResponse> getFinance(@PathVariable String stockCode) {
+        return ResponseEntity.ok(marketService.getFinance(stockCode));
+    }
+
+    @GetMapping("/stocks/{stockCode}/opinion")
+    public ResponseEntity<OpinionResponse> getOpinion(@PathVariable String stockCode) {
+        return ResponseEntity.ok(marketService.getOpinion((stockCode)));
+    }
+
+    @GetMapping("/stocks/{stockCode}/investor")
+    public ResponseEntity<InvestorResponse> getInvestor(@PathVariable String stockCode) {
+        return ResponseEntity.ok(marketService.getInvestor(stockCode));
     }
 }
