@@ -50,7 +50,7 @@ class UserControllerTest {
     private JwtTokenProvider jwtTokenProvider;
 
     private UserProfileResponse createProfileResponse() {
-        return new UserProfileResponse(1L, "test@example.com", "홍길동", "010-1234-5678", true, LocalDateTime.of(2026, 3, 16, 0, 0));
+        return new UserProfileResponse(1L, "test@example.com", "홍길동", "010-1234-5678", true, null, LocalDateTime.of(2026, 3, 16, 0, 0));
     }
 
     @Nested
@@ -83,7 +83,7 @@ class UserControllerTest {
         @WithMockUser(username = "1")
         void updateProfile_success() throws Exception {
             ProfileUpdateRequest request = new ProfileUpdateRequest("김길동", "010-9876-5432");
-            UserProfileResponse response = new UserProfileResponse(1L, "test@example.com", "김길동", "010-9876-5432", true, LocalDateTime.of(2026, 3, 16, 0, 0));
+            UserProfileResponse response = new UserProfileResponse(1L, "test@example.com", "김길동", "010-9876-5432", true, null, LocalDateTime.of(2026, 3, 16, 0, 0));
             given(userService.updateProfile(eq(1L), any(ProfileUpdateRequest.class))).willReturn(response);
 
             mockMvc.perform(patch("/api/users/me")

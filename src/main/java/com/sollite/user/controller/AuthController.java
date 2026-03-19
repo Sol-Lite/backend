@@ -3,10 +3,16 @@ package com.sollite.user.controller;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.global.util.AuthUtil;
 import com.sollite.user.dto.*;
+import com.sollite.user.exception.UserErrorCode;
+import com.sollite.user.service.SignupFacade;
 import com.sollite.user.service.UserService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +28,10 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final UserService userService;
+    private final SignupFacade signupFacade;
+
+    @Value("${app.cookie.secure:true}")
+    private boolean cookieSecure;
 
     /**
      * 회원가입을 처리합니다.
@@ -32,7 +42,7 @@ public class AuthController {
      */
     @PostMapping("/signup")
     public ResponseEntity<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {
-        SignupResponse response = userService.signup(request);
+        SignupResponse response = signupFacade.signup(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -40,13 +50,15 @@ public class AuthController {
      * 로그인을 처리합니다.
      *
      * @param request 로그인 정보 (이메일, 비밀번호, 자동로그인 여부)
-     * @return 200 OK - 접근 토큰, 갱신 토큰, 사용자 정보
+     * @return 200 OK - 접근 토큰, 사용자 정보 (refresh token은 HttpOnly 쿠키로 전달)
      * @throws BusinessException 계정 미등록, 비밀번호 오류, 계정 잠금 시
      */
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        LoginResponse response = userService.login(request);
-        return ResponseEntity.ok(response);
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request,
+                                               HttpServletResponse httpResponse) {
+        LoginResult result = userService.login(request);
+        httpResponse.addHeader(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie(result.refreshToken(), result.refreshTokenMaxAge()).toString());
+        return ResponseEntity.ok(result.response());
     }
 
     /**
@@ -120,13 +132,19 @@ public class AuthController {
      * JWT 접근 토큰을 갱신합니다.
      *
      * @param request 갱신 토큰
-     * @return 200 OK - 새로운 접근 토큰과 유효시간
+     * @return 200 OK - 새로운 접근 토큰과 유효시간 (refresh token은 HttpOnly 쿠키로 갱신)
      * @throws BusinessException 토큰 만료, 유효하지 않은 토큰 시
      */
     @PostMapping("/token/refresh")
-    public ResponseEntity<TokenRefreshResponse> refreshToken(@Valid @RequestBody TokenRefreshRequest request) {
-        TokenRefreshResponse response = userService.refreshToken(request);
-        return ResponseEntity.ok(response);
+    public ResponseEntity<TokenRefreshResponse> refreshToken(
+            @CookieValue(name = "refreshToken", required = false) String refreshToken,
+            HttpServletResponse httpResponse) {
+        if (refreshToken == null) {
+            throw new BusinessException(UserErrorCode.INVALID_TOKEN);
+        }
+        TokenRefreshResult result = userService.refreshToken(refreshToken);
+        httpResponse.addHeader(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie(result.refreshToken(), result.refreshTokenMaxAge()).toString());
+        return ResponseEntity.ok(result.response());
     }
 
     /**
@@ -139,9 +157,21 @@ public class AuthController {
      */
     @PostMapping("/logout")
     public ResponseEntity<MessageResponse> logout(Authentication authentication,
-                                                   @Valid @RequestBody LogoutRequest request) {
+                                                   @CookieValue(name = "refreshToken", required = false) String refreshToken,
+                                                   HttpServletResponse httpResponse) {
         Long userId = AuthUtil.getUserId(authentication);
-        userService.logout(userId, request);
+        userService.logout(userId, refreshToken != null ? refreshToken : "");
+        httpResponse.addHeader(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie("", 0).toString());
         return ResponseEntity.ok(new MessageResponse("로그아웃 되었습니다."));
+    }
+
+    private ResponseCookie buildRefreshTokenCookie(String value, long maxAgeMillis) {
+        return ResponseCookie.from("refreshToken", value)
+                .httpOnly(true)
+                .secure(cookieSecure)
+                .path("/api/auth")
+                .maxAge(maxAgeMillis / 1000)
+                .sameSite("Lax")
+                .build();
     }
 }

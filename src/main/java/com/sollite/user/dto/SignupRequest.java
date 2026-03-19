@@ -1,5 +1,6 @@
 package com.sollite.user.dto;
 
+import com.sollite.account.domain.enums.InvestmentType;
 import jakarta.validation.constraints.*;
 
 public record SignupRequest(
@@ -31,6 +32,13 @@ public record SignupRequest(
         Boolean serviceTermsAgreed,
 
         @AssertTrue(message = "개인정보처리방침에 동의해야 합니다")
-        Boolean privacyTermsAgreed
+        Boolean privacyTermsAgreed,
+
+        @NotNull(message = "투자성향은 필수입니다")
+        InvestmentType investmentType,
+
+        @NotBlank(message = "계좌 비밀번호는 필수입니다")
+        @Pattern(regexp = "^\\d{4}$", message = "계좌 비밀번호는 숫자 4자리입니다")
+        String accountPin
 ) {
 }

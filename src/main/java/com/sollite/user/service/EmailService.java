@@ -41,6 +41,7 @@ public class EmailService {
     private static final long RATE_LIMIT_TTL = 10;                 // 10분
     private static final String EMAIL_VERIFY_LIMIT = "email_verify_limit:";
     private static final String PW_RESET_LIMIT     = "pw_reset_limit:";
+    private static final String PIN_RESET_LIMIT    = "pin_reset_limit:";
 
     /**
      * 이메일 인증 메일을 발송합니다. 회원가입 전에도 호출 가능합니다.
@@ -154,9 +155,72 @@ public class EmailService {
         redisTemplate.delete(key);
 
         return Map.of(
-                "user_id", (String) data.get("user_id"),
-                "email", (String) data.get("email")
+                "user_id", getRequiredTokenField(data, "user_id"),
+                "email", getRequiredTokenField(data, "email")
         );
+    }
+
+    public void sendPinResetEmail(String email, Long userId) {
+        String rateLimitKey = PIN_RESET_LIMIT + email;
+        checkRateLimit(rateLimitKey);
+
+        String token = UUID.randomUUID().toString();
+
+        redisTemplate.opsForHash().putAll("pin_reset:" + token, Map.of(
+                "user_id", String.valueOf(userId),
+                "email", email,
+                "created_at", java.time.LocalDateTime.now().toString()
+        ));
+        redisTemplate.expire("pin_reset:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
+
+        incrementRateLimit(rateLimitKey);
+        sendPinResetHtmlEmail(email, token);
+    }
+
+    public Map<String, String> verifyPinResetToken(String token) {
+        String key = "pin_reset:" + token;
+        Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
+
+        if (data.isEmpty()) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+
+        redisTemplate.delete(key);
+
+        return Map.of(
+                "user_id", getRequiredTokenField(data, "user_id"),
+                "email", getRequiredTokenField(data, "email")
+        );
+    }
+
+    private String getRequiredTokenField(Map<Object, Object> data, String fieldName) {
+        Object value = data.get(fieldName);
+        if (!(value instanceof String stringValue) || stringValue.isBlank()) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+        return stringValue;
+    }
+
+    private void sendPinResetHtmlEmail(String email, String token) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setTo(email);
+            helper.setSubject("[SOL-Lite] 계좌 비밀번호 재설정");
+            helper.setFrom(mailFrom);
+
+            String resetUrl = frontendUrl + "/account/pin/reset?token=" + token;
+
+            Context context = new Context();
+            context.setVariable("resetUrl", resetUrl);
+            String html = templateEngine.process("pin-reset", context);
+
+            helper.setText(html, true);
+            mailSender.send(message);
+        } catch (MessagingException e) {
+            throw new BusinessException(UserErrorCode.EMAIL_SEND_FAILED);
+        }
     }
 
     private void sendPasswordResetHtmlEmail(String email, String token) {

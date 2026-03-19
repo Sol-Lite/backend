@@ -1,5 +1,6 @@
 package com.sollite.user.service;
 
+import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.global.security.JwtTokenProvider;
 import com.sollite.user.domain.entity.User;
@@ -26,6 +27,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final UserConsentRepository userConsentRepository;
+    private final AccountRepository accountRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final StringRedisTemplate redisTemplate;
@@ -33,16 +35,14 @@ public class UserService {
     private final EmailService emailService;
 
     /**
-     * 사용자를 신규 등록합니다.
+     * 사용자를 신규 등록합니다. SignupFacade에서 트랜잭션 내에 호출됩니다.
      *
      * @param request 회원가입 정보 (이메일, 비밀번호, 이름, 전화번호, 약관동의 여부)
-     * @return 등록된 사용자의 ID, 이메일, 이름과 안내 메시지
-     * @throws BusinessException 이메일 중복, 비밀번호 불일치 시
+     * @return 생성된 User 엔티티
+     * @throws BusinessException 이메일 중복, 비밀번호 불일치, 이메일 미인증 시
      */
-    @Transactional
-    public SignupResponse signup(SignupRequest request) {
-        if (!request.password()
-                .equals(request.passwordConfirm())) {
+    public User createUser(SignupRequest request) {
+        if (!request.password().equals(request.passwordConfirm())) {
             throw new BusinessException(UserErrorCode.PASSWORD_CONFIRM_MISMATCH);
         }
 
@@ -69,22 +69,17 @@ public class UserService {
         // 사용한 인증 키 삭제
         redisTemplate.delete("email_verified:" + request.email());
 
-        return new SignupResponse(
-                user.getUserId(),
-                user.getEmail(),
-                user.getName(),
-                "회원가입이 완료되었습니다."
-        );
+        return user;
     }
 
     /**
      * 사용자 로그인을 처리합니다. 실패 시 로그인 시도를 기록하고 5회 실패 시 계정을 잠급니다.
      *
      * @param request 로그인 정보 (이메일, 비밀번호, 자동로그인 여부)
-     * @return 접근 토큰, 갱신 토큰, 토큰 유효시간, 사용자 정보
+     * @return 응답 바디와 refresh token 쿠키 생성을 위한 내부 결과
      * @throws BusinessException 계정 미등록, 이메일 미인증, 비밀번호 오류, 계정 잠금 시
      */
-    public LoginResponse login(LoginRequest request) {
+    public LoginResult login(LoginRequest request) {
         User user = userRepository.findByEmail(request.email())
                 .orElseThrow(() -> new BusinessException(UserErrorCode.INVALID_PASSWORD));
 
@@ -117,15 +112,18 @@ public class UserService {
                 TimeUnit.MILLISECONDS
         );
 
-        return new LoginResponse(
-                accessToken,
+        return new LoginResult(
+                new LoginResponse(
+                        accessToken,
+                        jwtTokenProvider.getAccessTokenExpiry() / 1000,
+                        new LoginResponse.UserInfo(
+                                user.getUserId(),
+                                user.getEmail(),
+                                user.getName()
+                        )
+                ),
                 refreshToken,
-                jwtTokenProvider.getAccessTokenExpiry() / 1000,
-                new LoginResponse.UserInfo(
-                        user.getUserId(),
-                        user.getEmail(),
-                        user.getName()
-                )
+                refreshTokenExpiry
         );
     }
 
@@ -136,10 +134,10 @@ public class UserService {
      * @param request 갱신 토큰
      * @throws BusinessException 유효하지 않은 토큰 시
      */
-    public void logout(Long userId, LogoutRequest request) {
+    public void logout(Long userId, String refreshToken) {
         String storedToken = redisTemplate.opsForValue().get("refresh:" + userId);
 
-        if (storedToken == null || !storedToken.equals(request.refreshToken())) {
+        if (storedToken == null || !storedToken.equals(refreshToken)) {
             throw new BusinessException(UserErrorCode.INVALID_TOKEN);
         }
 
@@ -150,18 +148,18 @@ public class UserService {
      * 만료 가능한 갱신 토큰으로 새로운 접근 토큰을 발급합니다.
      *
      * @param request 갱신 토큰
-     * @return 새로운 접근 토큰과 유효시간 (초 단위)
+     * @return 응답 바디와 refresh token 쿠키 갱신을 위한 내부 결과
      * @throws BusinessException 토큰 만료, 유효하지 않은 토큰, 사용자 미등록 시
      */
-    public TokenRefreshResponse refreshToken(TokenRefreshRequest request) {
-        if (!jwtTokenProvider.validateToken(request.refreshToken())) {
+    public TokenRefreshResult refreshToken(String refreshToken) {
+        if (!jwtTokenProvider.validateToken(refreshToken)) {
             throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
         }
 
-        Long userId = jwtTokenProvider.getUserIdFromToken(request.refreshToken());
+        Long userId = jwtTokenProvider.getUserIdFromToken(refreshToken);
 
         String storedToken = redisTemplate.opsForValue().get("refresh:" + userId);
-        if (storedToken == null || !storedToken.equals(request.refreshToken())) {
+        if (storedToken == null || !storedToken.equals(refreshToken)) {
             throw new BusinessException(UserErrorCode.INVALID_TOKEN);
         }
 
@@ -173,17 +171,21 @@ public class UserService {
 
         // 기존 토큰의 남은 TTL을 그대로 유지하여 새 토큰 저장
         long remainingTtl = redisTemplate.getExpire("refresh:" + userId, TimeUnit.MILLISECONDS);
+        long ttlForCookie = remainingTtl > 0 ? remainingTtl : jwtTokenProvider.getRefreshTokenExpiry(false);
         redisTemplate.opsForValue().set(
                 "refresh:" + userId,
                 newRefreshToken,
-                remainingTtl > 0 ? remainingTtl : jwtTokenProvider.getRefreshTokenExpiry(false),
+                ttlForCookie,
                 TimeUnit.MILLISECONDS
         );
 
-        return new TokenRefreshResponse(
-                newAccessToken,
+        return new TokenRefreshResult(
+                new TokenRefreshResponse(
+                        newAccessToken,
+                        jwtTokenProvider.getAccessTokenExpiry() / 1000
+                ),
                 newRefreshToken,
-                jwtTokenProvider.getAccessTokenExpiry() / 1000
+                ttlForCookie
         );
     }
 
@@ -234,11 +236,12 @@ public class UserService {
 
         java.util.Map<String, String> tokenData = emailService.verifyPasswordResetToken(request.token());
 
-        Long userId = Long.parseLong(tokenData.get("user_id"));
+        Long userId = parseTokenUserId(tokenData);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
         user.changePassword(passwordEncoder.encode(request.newPassword()));
+        user.unlock();
 
         // 모든 세션 강제 로그아웃
         redisTemplate.delete("refresh:" + userId);
@@ -267,6 +270,19 @@ public class UserService {
         user.changePassword(passwordEncoder.encode(request.newPassword()));
     }
 
+    private Long parseTokenUserId(java.util.Map<String, String> tokenData) {
+        String rawUserId = tokenData.get("user_id");
+        if (rawUserId == null) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+
+        try {
+            return Long.parseLong(rawUserId);
+        } catch (NumberFormatException e) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+    }
+
     /**
      * 사용자의 프로필 정보를 조회합니다.
      *
@@ -279,12 +295,17 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
+        Long accountId = accountRepository.findByUser_UserId(userId)
+                .map(account -> account.getAccountId())
+                .orElse(null);
+
         return new UserProfileResponse(
                 user.getUserId(),
                 user.getEmail(),
                 user.getName(),
                 user.getPhone(),
                 user.isEmailVerified(),
+                accountId,
                 user.getCreatedAt()
         );
     }
@@ -305,12 +326,17 @@ public class UserService {
         String phone = request.phone() != null ? request.phone().replaceAll("-", "") : null;
         user.updateProfile(request.name(), phone);
 
+        Long accountId = accountRepository.findByUser_UserId(userId)
+                .map(account -> account.getAccountId())
+                .orElse(null);
+
         return new UserProfileResponse(
                 user.getUserId(),
                 user.getEmail(),
                 user.getName(),
                 user.getPhone(),
                 user.isEmailVerified(),
+                accountId,
                 user.getCreatedAt()
         );
     }
