@@ -5,6 +5,9 @@ import com.sollite.market.dto.DailyPriceResponse;
 import com.sollite.market.dto.ChartPeriod;
 import com.sollite.market.dto.ChartResponse;
 import com.sollite.market.dto.MinuteChartResponse;
+import com.sollite.market.dto.FinanceResponse;
+import com.sollite.market.dto.OpinionResponse;
+import com.sollite.market.dto.InvestorResponse;
 
 import java.time.LocalDate;
 
@@ -13,4 +16,7 @@ public interface MarketService {
     DailyPriceResponse getDailyPrice(String stockCode, LocalDate date);
     ChartResponse getChart(String stockCode, ChartPeriod period, LocalDate startDate, LocalDate endDate);
     MinuteChartResponse getMinuteChart(String stockCode, int ncnt);
+    FinanceResponse getFinance(String stockCode);
+    OpinionResponse getOpinion(String stockCode);
+    InvestorResponse getInvestor(String stockCode);
 }
