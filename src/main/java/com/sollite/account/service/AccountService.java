@@ -97,6 +97,7 @@ public class AccountService {
         account.changePin(passwordEncoder.encode(newPin));
     }
 
+    @Transactional(readOnly = true)
     public void requestPinReset(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
@@ -108,7 +109,7 @@ public class AccountService {
     public void confirmPinReset(String token, String newPin) {
         java.util.Map<String, String> tokenData = emailService.verifyPinResetToken(token);
 
-        Long userId = Long.parseLong(tokenData.get("user_id"));
+        Long userId = parseTokenUserId(tokenData);
         Account account = accountRepository.findByUser_UserId(userId)
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
 
@@ -144,5 +145,18 @@ public class AccountService {
             candidate = "270-86-" + seq;
         }
         return candidate;
+    }
+
+    private Long parseTokenUserId(java.util.Map<String, String> tokenData) {
+        String rawUserId = tokenData.get("user_id");
+        if (rawUserId == null) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+
+        try {
+            return Long.parseLong(rawUserId);
+        } catch (NumberFormatException e) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
     }
 }

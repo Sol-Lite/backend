@@ -258,6 +258,18 @@ class AccountServiceTest {
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
         }
+
+        @Test
+        @DisplayName("PIN 재설정 확인 실패 - 토큰 user_id 누락")
+        void confirmPinReset_fail_missingUserId() {
+            given(emailService.verifyPinResetToken("invalid-token"))
+                    .willReturn(java.util.Collections.singletonMap("email", "test@example.com"));
+
+            assertThatThrownBy(() -> accountService.confirmPinReset("invalid-token", "5678"))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
+        }
     }
 
     @Nested
