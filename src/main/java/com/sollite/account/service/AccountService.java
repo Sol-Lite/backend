@@ -3,6 +3,8 @@ package com.sollite.account.service;
 import com.sollite.account.domain.entity.Account;
 import com.sollite.account.domain.entity.SimulationRound;
 import com.sollite.account.domain.enums.InvestmentType;
+import com.sollite.account.domain.enums.RoundEndReasonCode;
+import com.sollite.account.domain.enums.RoundStatus;
 import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.account.domain.repository.SimulationRoundRepository;
 import com.sollite.account.dto.AccountInfoResponse;
@@ -26,9 +28,6 @@ import java.util.concurrent.ThreadLocalRandom;
 public class AccountService {
 
     private static final BigDecimal SEED_MONEY = new BigDecimal("100000000");
-    private static final String ACTIVE_ROUND_STATUS = "ACTIVE";
-    private static final String RESET_REASON_CODE = "RESET";
-    private static final String ACCOUNT_CLOSED_REASON_CODE = "ACCOUNT_CLOSED";
 
     private final AccountRepository accountRepository;
     private final SimulationRoundRepository simulationRoundRepository;
@@ -134,10 +133,10 @@ public class AccountService {
         }
 
         SimulationRound currentRound = simulationRoundRepository
-                .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), ACTIVE_ROUND_STATUS)
+                .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), RoundStatus.ACTIVE)
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
 
-        currentRound.close(RESET_REASON_CODE);
+        currentRound.close(RoundEndReasonCode.RESET);
 
         SimulationRound newRound = SimulationRound.builder()
                 .account(account)
@@ -170,10 +169,10 @@ public class AccountService {
         // TODO: 미체결 주문 있으면 폐쇄 불가 — order 도메인 구현 후 추가 (issue #15)
 
         SimulationRound currentRound = simulationRoundRepository
-                .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), ACTIVE_ROUND_STATUS)
+                .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), RoundStatus.ACTIVE)
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
 
-        currentRound.close(ACCOUNT_CLOSED_REASON_CODE);
+        currentRound.close(RoundEndReasonCode.ACCOUNT_CLOSED);
         account.close();
     }
 

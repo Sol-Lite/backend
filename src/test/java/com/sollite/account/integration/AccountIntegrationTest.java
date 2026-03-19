@@ -6,10 +6,13 @@ import com.sollite.account.domain.entity.Account;
 import com.sollite.account.domain.entity.SimulationRound;
 import com.sollite.account.domain.enums.AccountStatus;
 import com.sollite.account.domain.enums.InvestmentType;
+import com.sollite.account.domain.enums.RoundEndReasonCode;
+import com.sollite.account.domain.enums.RoundStatus;
 import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.account.domain.repository.SimulationRoundRepository;
 import com.sollite.account.dto.AccountCloseRequest;
 import com.sollite.account.dto.AccountResetRequest;
+import jakarta.persistence.EntityManager;
 import com.sollite.user.domain.repository.UserConsentRepository;
 import com.sollite.user.domain.repository.UserRepository;
 import com.sollite.user.dto.LoginRequest;
@@ -58,6 +61,9 @@ class AccountIntegrationTest {
     private SimulationRoundRepository simulationRoundRepository;
 
     @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
     private UserConsentRepository userConsentRepository;
 
     @Autowired
@@ -94,8 +100,7 @@ class AccountIntegrationTest {
                 .andExpect(jsonPath("$.roundNo").value(2));
 
         Account account = getAccount();
-        List<SimulationRound> rounds = simulationRoundRepository
-                .findAllByAccount_AccountIdOrderByRoundNoAsc(account.getAccountId());
+        List<SimulationRound> rounds = findRounds(account.getAccountId());
 
         assertThat(account.getAccountStatus()).isEqualTo(AccountStatus.ACTIVE);
         assertThat(rounds).hasSize(2);
@@ -104,12 +109,12 @@ class AccountIntegrationTest {
         SimulationRound secondRound = rounds.get(1);
 
         assertThat(firstRound.getRoundNo()).isEqualTo(1);
-        assertThat(firstRound.getRoundStatus()).isEqualTo("CLOSED");
-        assertThat(firstRound.getRoundEndReasonCode()).isEqualTo("RESET");
+        assertThat(firstRound.getRoundStatus()).isEqualTo(RoundStatus.CLOSED);
+        assertThat(firstRound.getRoundEndReasonCode()).isEqualTo(RoundEndReasonCode.RESET);
         assertThat(firstRound.getEndedAt()).isNotNull();
 
         assertThat(secondRound.getRoundNo()).isEqualTo(2);
-        assertThat(secondRound.getRoundStatus()).isEqualTo("ACTIVE");
+        assertThat(secondRound.getRoundStatus()).isEqualTo(RoundStatus.ACTIVE);
         assertThat(secondRound.getRoundEndReasonCode()).isNull();
         assertThat(secondRound.getEndedAt()).isNull();
         assertThat(secondRound.getInitialSeedAmount()).isEqualByComparingTo(new BigDecimal("100000000"));
@@ -129,12 +134,11 @@ class AccountIntegrationTest {
                 .andExpect(jsonPath("$.code").value("INVALID_PIN"));
 
         Account account = getAccount();
-        List<SimulationRound> rounds = simulationRoundRepository
-                .findAllByAccount_AccountIdOrderByRoundNoAsc(account.getAccountId());
+        List<SimulationRound> rounds = findRounds(account.getAccountId());
 
         assertThat(rounds).hasSize(1);
         assertThat(rounds.get(0).getRoundNo()).isEqualTo(1);
-        assertThat(rounds.get(0).getRoundStatus()).isEqualTo("ACTIVE");
+        assertThat(rounds.get(0).getRoundStatus()).isEqualTo(RoundStatus.ACTIVE);
         assertThat(rounds.get(0).getRoundEndReasonCode()).isNull();
     }
 
@@ -152,13 +156,12 @@ class AccountIntegrationTest {
                 .andExpect(jsonPath("$.message").value("계좌가 폐쇄되었습니다."));
 
         Account account = getAccount();
-        List<SimulationRound> rounds = simulationRoundRepository
-                .findAllByAccount_AccountIdOrderByRoundNoAsc(account.getAccountId());
+        List<SimulationRound> rounds = findRounds(account.getAccountId());
 
         assertThat(account.getAccountStatus()).isEqualTo(AccountStatus.CLOSED);
         assertThat(rounds).hasSize(1);
-        assertThat(rounds.get(0).getRoundStatus()).isEqualTo("CLOSED");
-        assertThat(rounds.get(0).getRoundEndReasonCode()).isEqualTo("ACCOUNT_CLOSED");
+        assertThat(rounds.get(0).getRoundStatus()).isEqualTo(RoundStatus.CLOSED);
+        assertThat(rounds.get(0).getRoundEndReasonCode()).isEqualTo(RoundEndReasonCode.ACCOUNT_CLOSED);
         assertThat(rounds.get(0).getEndedAt()).isNotNull();
     }
 
@@ -199,6 +202,18 @@ class AccountIntegrationTest {
 
         return accountRepository.findByUser_UserId(userId)
                 .orElseThrow();
+    }
+
+    private List<SimulationRound> findRounds(Long accountId) {
+        entityManager.clear();
+        return entityManager.createQuery("""
+                        select simulationRound
+                        from SimulationRound simulationRound
+                        where simulationRound.account.accountId = :accountId
+                        order by simulationRound.roundNo asc
+                        """, SimulationRound.class)
+                .setParameter("accountId", accountId)
+                .getResultList();
     }
 
     private void deleteTestData() {
