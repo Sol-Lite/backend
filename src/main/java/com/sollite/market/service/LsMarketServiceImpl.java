@@ -549,11 +549,11 @@ class LsMarketServiceImpl implements MarketService {
                     b.hotime(),
                     b.yeprice(),
                     b.yevolume(),
-                    b.yediff(),
+                    Double.parseDouble(b.yediff().trim()),
                     b.offer(),
                     b.bid(),
-                    asks,
-                    bids
+                    b.toAsks(),
+                    b.toBids()
             );
 
         } catch (BusinessException e) {
