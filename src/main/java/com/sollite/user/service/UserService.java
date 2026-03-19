@@ -76,10 +76,10 @@ public class UserService {
      * 사용자 로그인을 처리합니다. 실패 시 로그인 시도를 기록하고 5회 실패 시 계정을 잠급니다.
      *
      * @param request 로그인 정보 (이메일, 비밀번호, 자동로그인 여부)
-     * @return 접근 토큰, 갱신 토큰, 토큰 유효시간, 사용자 정보
+     * @return 응답 바디와 refresh token 쿠키 생성을 위한 내부 결과
      * @throws BusinessException 계정 미등록, 이메일 미인증, 비밀번호 오류, 계정 잠금 시
      */
-    public LoginResponse login(LoginRequest request) {
+    public LoginResult login(LoginRequest request) {
         User user = userRepository.findByEmail(request.email())
                 .orElseThrow(() -> new BusinessException(UserErrorCode.INVALID_PASSWORD));
 
@@ -112,13 +112,15 @@ public class UserService {
                 TimeUnit.MILLISECONDS
         );
 
-        return new LoginResponse(
-                accessToken,
-                jwtTokenProvider.getAccessTokenExpiry() / 1000,
-                new LoginResponse.UserInfo(
-                        user.getUserId(),
-                        user.getEmail(),
-                        user.getName()
+        return new LoginResult(
+                new LoginResponse(
+                        accessToken,
+                        jwtTokenProvider.getAccessTokenExpiry() / 1000,
+                        new LoginResponse.UserInfo(
+                                user.getUserId(),
+                                user.getEmail(),
+                                user.getName()
+                        )
                 ),
                 refreshToken,
                 refreshTokenExpiry
@@ -146,10 +148,10 @@ public class UserService {
      * 만료 가능한 갱신 토큰으로 새로운 접근 토큰을 발급합니다.
      *
      * @param request 갱신 토큰
-     * @return 새로운 접근 토큰과 유효시간 (초 단위)
+     * @return 응답 바디와 refresh token 쿠키 갱신을 위한 내부 결과
      * @throws BusinessException 토큰 만료, 유효하지 않은 토큰, 사용자 미등록 시
      */
-    public TokenRefreshResponse refreshToken(String refreshToken) {
+    public TokenRefreshResult refreshToken(String refreshToken) {
         if (!jwtTokenProvider.validateToken(refreshToken)) {
             throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
         }
@@ -177,9 +179,11 @@ public class UserService {
                 TimeUnit.MILLISECONDS
         );
 
-        return new TokenRefreshResponse(
-                newAccessToken,
-                jwtTokenProvider.getAccessTokenExpiry() / 1000,
+        return new TokenRefreshResult(
+                new TokenRefreshResponse(
+                        newAccessToken,
+                        jwtTokenProvider.getAccessTokenExpiry() / 1000
+                ),
                 newRefreshToken,
                 ttlForCookie
         );
@@ -232,7 +236,7 @@ public class UserService {
 
         java.util.Map<String, String> tokenData = emailService.verifyPasswordResetToken(request.token());
 
-        Long userId = Long.parseLong(tokenData.get("user_id"));
+        Long userId = parseTokenUserId(tokenData);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
@@ -264,6 +268,19 @@ public class UserService {
         }
 
         user.changePassword(passwordEncoder.encode(request.newPassword()));
+    }
+
+    private Long parseTokenUserId(java.util.Map<String, String> tokenData) {
+        String rawUserId = tokenData.get("user_id");
+        if (rawUserId == null) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+
+        try {
+            return Long.parseLong(rawUserId);
+        } catch (NumberFormatException e) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
     }
 
     /**

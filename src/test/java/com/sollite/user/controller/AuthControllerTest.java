@@ -16,11 +16,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doNothing;
@@ -128,18 +130,22 @@ class AuthControllerTest {
         @WithMockUser
         void login_success() throws Exception {
             LoginRequest request = new LoginRequest("test@example.com", "Test1234!", false);
-            LoginResponse response = new LoginResponse(
-                    "access-token", 1800L,
-                    new LoginResponse.UserInfo(1L, "test@example.com", "홍길동"),
-                    "refresh-token", 604800000L
+            LoginResult result = new LoginResult(
+                    new LoginResponse(
+                            "access-token", 1800L,
+                            new LoginResponse.UserInfo(1L, "test@example.com", "홍길동")
+                    ),
+                    "refresh-token",
+                    604800000L
             );
-            given(userService.login(any(LoginRequest.class))).willReturn(response);
+            given(userService.login(any(LoginRequest.class))).willReturn(result);
 
             mockMvc.perform(post("/api/auth/login")
                             .with(csrf())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
+                    .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Secure")))
                     .andExpect(jsonPath("$.accessToken").value("access-token"))
                     .andExpect(jsonPath("$.expiresIn").value(1800))
                     .andExpect(jsonPath("$.user.email").value("test@example.com"))
@@ -250,15 +256,18 @@ class AuthControllerTest {
         @DisplayName("토큰 갱신 API 성공 - 200 OK")
         @WithMockUser
         void refreshToken_success() throws Exception {
-            TokenRefreshResponse response = new TokenRefreshResponse(
-                    "new-access-token", 1800L, "new-refresh-token", 604800000L
+            TokenRefreshResult result = new TokenRefreshResult(
+                    new TokenRefreshResponse("new-access-token", 1800L),
+                    "new-refresh-token",
+                    604800000L
             );
-            given(userService.refreshToken(anyString())).willReturn(response);
+            given(userService.refreshToken(anyString())).willReturn(result);
 
             mockMvc.perform(post("/api/auth/token/refresh")
                             .with(csrf())
                             .cookie(new Cookie("refreshToken", "valid-refresh-token")))
                     .andExpect(status().isOk())
+                    .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("Secure")))
                     .andExpect(jsonPath("$.accessToken").value("new-access-token"))
                     .andExpect(jsonPath("$.expiresIn").value(1800));
         }

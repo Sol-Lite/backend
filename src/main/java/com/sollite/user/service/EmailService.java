@@ -155,8 +155,8 @@ public class EmailService {
         redisTemplate.delete(key);
 
         return Map.of(
-                "user_id", (String) data.get("user_id"),
-                "email", (String) data.get("email")
+                "user_id", getRequiredTokenField(data, "user_id"),
+                "email", getRequiredTokenField(data, "email")
         );
     }
 
@@ -188,9 +188,17 @@ public class EmailService {
         redisTemplate.delete(key);
 
         return Map.of(
-                "user_id", (String) data.get("user_id"),
-                "email", (String) data.get("email")
+                "user_id", getRequiredTokenField(data, "user_id"),
+                "email", getRequiredTokenField(data, "email")
         );
+    }
+
+    private String getRequiredTokenField(Map<Object, Object> data, String fieldName) {
+        Object value = data.get(fieldName);
+        if (!(value instanceof String stringValue) || stringValue.isBlank()) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+        return stringValue;
     }
 
     private void sendPinResetHtmlEmail(String email, String token) {

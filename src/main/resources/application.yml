@@ -78,6 +78,8 @@ jwt:
 app:
   base-url: ${APP_BASE_URL:http://localhost:8080}
   frontend-url: ${APP_FRONTEND_URL:http://localhost:5173}
+  cookie:
+    secure: ${APP_COOKIE_SECURE:true}
   mail:
     from: ${MAIL_FROM}
 
@@ -86,4 +88,3 @@ logging:
   level:
     com.sollite: DEBUG
     org.hibernate.SQL: DEBUG
-

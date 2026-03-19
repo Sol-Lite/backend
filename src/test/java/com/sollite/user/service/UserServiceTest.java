@@ -146,13 +146,13 @@ class UserServiceTest {
             given(jwtTokenProvider.getRefreshTokenExpiry(false)).willReturn(604800000L);
             given(redisTemplate.opsForValue()).willReturn(valueOperations);
 
-            LoginResponse response = userService.login(request);
+            LoginResult result = userService.login(request);
 
-            assertThat(response.accessToken()).isEqualTo("access-token");
-            assertThat(response.refreshToken()).isEqualTo("refresh-token");
-            assertThat(response.expiresIn()).isEqualTo(1800);
-            assertThat(response.user().email()).isEqualTo("test@example.com");
-            assertThat(response.user().name()).isEqualTo("홍길동");
+            assertThat(result.response().accessToken()).isEqualTo("access-token");
+            assertThat(result.refreshToken()).isEqualTo("refresh-token");
+            assertThat(result.response().expiresIn()).isEqualTo(1800);
+            assertThat(result.response().user().email()).isEqualTo("test@example.com");
+            assertThat(result.response().user().name()).isEqualTo("홍길동");
             verify(valueOperations).set(anyString(), eq("refresh-token"), anyLong(), any());
         }
 
@@ -287,10 +287,11 @@ class UserServiceTest {
             given(jwtTokenProvider.getRefreshTokenExpiry(false)).willReturn(604800000L);
             given(jwtTokenProvider.getAccessTokenExpiry()).willReturn(1800000L);
 
-            TokenRefreshResponse response = userService.refreshToken("valid-refresh-token");
+            TokenRefreshResult result = userService.refreshToken("valid-refresh-token");
 
-            assertThat(response.accessToken()).isEqualTo("new-access-token");
-            assertThat(response.expiresIn()).isEqualTo(1800);
+            assertThat(result.response().accessToken()).isEqualTo("new-access-token");
+            assertThat(result.response().expiresIn()).isEqualTo(1800);
+            assertThat(result.refreshToken()).isEqualTo("new-refresh-token");
         }
 
         @Test
@@ -424,6 +425,19 @@ class UserServiceTest {
 
             assertThatThrownBy(() -> userService.confirmPasswordReset(
                     new PasswordResetConfirmRequest("expired-token", "NewPass1!", "NewPass1!")))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
+        }
+
+        @Test
+        @DisplayName("비밀번호 재설정 확인 실패 - 토큰 user_id 형식 오류")
+        void confirmPasswordReset_fail_invalidUserId() {
+            given(emailService.verifyPasswordResetToken("invalid-token"))
+                    .willReturn(java.util.Map.of("user_id", "not-a-number", "email", "test@example.com"));
+
+            assertThatThrownBy(() -> userService.confirmPasswordReset(
+                    new PasswordResetConfirmRequest("invalid-token", "NewPass1!", "NewPass1!")))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
