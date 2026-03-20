@@ -25,6 +25,8 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private final LsTokenService tokenService;
     private final ObjectMapper objectMapper;
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HHmmss");
 
     @Override
     public ForeignCurrentPriceResponse getCurrentPrice(String stockCode, String exchcd) {
@@ -299,7 +301,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
         String token = tokenService.getAccessToken();
         try {
             String keysymbol = exchcd + stockCode;
-            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyyMMdd");
+            DateTimeFormatter fmt = DATE_FMT;
 
             String raw = lsWebClient.post()
                     .uri("/overseas/chart-daily")
@@ -372,7 +374,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
         try {
             String keysymbol = exchcd + stockCode;
             LocalDate today = LocalDate.now();
-            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyyMMdd");
+            DateTimeFormatter fmt = DATE_FMT;
 
             String raw = lsWebClient.post()
                     .uri("/overseas/chart-tick")
@@ -414,7 +416,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
                     .map(item -> {
                         LocalDateTime dateTime = LocalDateTime.of(
                                 LocalDate.parse(item.date(), fmt),
-                                java.time.LocalTime.parse(item.loctime(), DateTimeFormatter.ofPattern("HHmmss"))
+                                java.time.LocalTime.parse(item.loctime(), TIME_FMT)
                         );
                         return new ForeignTickChartResponse.TickDataPoint(
                                 dateTime,
@@ -455,7 +457,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
         try {
             String keysymbol = exchcd + stockCode;
             LocalDate today = LocalDate.now();
-            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyyMMdd");
+            DateTimeFormatter fmt = DATE_FMT;
 
             String raw = lsWebClient.post()
                     .uri("/overseas/chart-minute")
@@ -498,7 +500,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
                     .map(item -> {
                         LocalDateTime dateTime = LocalDateTime.of(
                                 LocalDate.parse(item.date(), fmt),
-                                java.time.LocalTime.parse(item.loctime(), DateTimeFormatter.ofPattern("HHmmss"))
+                                java.time.LocalTime.parse(item.loctime(), TIME_FMT)
                         );
                         return new ForeignMinuteChartResponse.MinuteChartDataPoint(
                                 dateTime,
@@ -539,7 +541,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
         String token = tokenService.getAccessToken();
         try {
             String keysymbol = exchcd + stockCode;
-            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyyMMdd");
+            DateTimeFormatter fmt = DATE_FMT;
 
             String raw = lsWebClient.post()
                     .uri("/overseas/chart-advanced")

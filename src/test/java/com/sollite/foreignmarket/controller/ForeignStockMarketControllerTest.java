@@ -21,6 +21,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
@@ -89,7 +90,7 @@ class ForeignStockMarketControllerTest {
         @DisplayName("현재가 조회 실패 - 필수 파라미터 누락")
         void getCurrentPrice_missing_parameter() throws Exception {
             mockMvc.perform(get("/api/market/foreign-stocks/TSLA/price"))
-                    .andDo(result -> System.out.println("Status: " + result.getResponse().getStatus()))
+                    .andDo(print())
                     .andExpect(status().isBadRequest());
         }
     }
