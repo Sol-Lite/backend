@@ -98,3 +98,8 @@ ls:
     url: "https://openapi.ls-sec.co.kr:8080"
     appkey: ${LS_APPKEY}
     appsecret: ${LS_APPSECRET}
+
+# ── LS Websocket ──
+ls:
+  ws:
+    url: wss://openapi.ls-sec.co.kr:9443/websocket

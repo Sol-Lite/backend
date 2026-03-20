@@ -1,7 +1,7 @@
-package com.sollite.market.service;
+package com.sollite.global.service;
 
 import com.sollite.global.exception.BusinessException;
-import com.sollite.market.exception.MarketErrorCode;
+import com.sollite.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,12 +16,13 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class LsTokenService {
+
     private final WebClient lsWebClient;
 
     private String cachedToken;
     private Instant tokenExpiresAt;
 
-    @Value("${ls.api.appkey}") private String appKey;
+    @Value("${ls.api.appkey}")    private String appKey;
     @Value("${ls.api.appsecret}") private String appSecret;
 
     public synchronized String getAccessToken() {
@@ -55,6 +56,6 @@ public class LsTokenService {
             log.info("새 토큰 발급 완료, 만료까지 {}초", expiresIn);
             return;
         }
-        throw new BusinessException(MarketErrorCode.LS_TOKEN_FETCH_FAILED);
+        throw new BusinessException(GlobalErrorCode.LS_TOKEN_FETCH_FAILED);
     }
 }

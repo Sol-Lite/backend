@@ -2,6 +2,7 @@ package com.sollite.market.service;
 
 import com.sollite.global.exception.BusinessException;
 import com.sollite.market.dto.*;
+import com.sollite.global.service.LsTokenService;
 import com.sollite.market.exception.MarketErrorCode;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
