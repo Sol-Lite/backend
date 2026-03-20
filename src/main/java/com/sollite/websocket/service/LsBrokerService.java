@@ -58,6 +58,7 @@ public class LsBrokerService {
     // TR 코드 → STOMP 토픽 매핑
     private static final Map<String, String> TR_TOPIC_MAP = Map.of(
             "UH1", "/topic/asking/",
+            "US3", "/topic/stock/trade/",
             "GSH", "/topic/foreign/quote/",
             "GSC", "/topic/foreign/transaction/"
     );
@@ -223,7 +224,7 @@ public class LsBrokerService {
      */
     private String extractSymbol(String trCd, JsonNode body) {
         return switch (trCd) {
-            case "UH1" -> body.has("shcode") ? body.get("shcode").asText() : null;
+            case "UH1", "US3" -> body.has("shcode") ? body.get("shcode").asText() : null;
             case "GSH", "GSC" -> body.has("symbol") ? body.get("symbol").asText() : null;
             default -> null;
         };
@@ -236,7 +237,7 @@ public class LsBrokerService {
         if ("GSH".equals(trCd) || "GSC".equals(trCd)) {
             return String.format("%-18s", key).substring(0, 18);
         }
-        if ("UH1".equals(trCd)) {
+        if ("UH1".equals(trCd) || "US3".equals(trCd)) {
             return String.format("%-10s", "U" + key).substring(0, 10);
         }
         return key;

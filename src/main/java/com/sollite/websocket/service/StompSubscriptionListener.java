@@ -78,6 +78,10 @@ public class StompSubscriptionListener {
             String stockCode = destination.substring("/topic/asking/".length());
             return new SubscriptionInfo("UH1", stockCode);
         }
+        if (destination.startsWith("/topic/stock/trade/")) {
+            String stockCode = destination.substring("/topic/stock/trade/".length());
+            return new SubscriptionInfo("US3", stockCode);
+        }
         if (destination.startsWith("/topic/foreign/quote/")) {
             String symbol = destination.substring("/topic/foreign/quote/".length());
             return new SubscriptionInfo("GSH", symbol);
