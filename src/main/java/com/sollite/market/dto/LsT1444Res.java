@@ -19,6 +19,8 @@ public record LsT1444Res(
             String diff,
             long volume,
             long total,
-            String for_rate
+            String for_rate,
+            String rate,
+            String vol_rate
     ) {}
 }

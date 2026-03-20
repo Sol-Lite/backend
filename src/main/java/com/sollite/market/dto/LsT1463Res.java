@@ -19,6 +19,9 @@ public record LsT1463Res(
             String diff,
             long volume,
             long value,
-            long total
+            long total,
+            long jnilvalue,
+            String bef_diff,
+            String ex_shcode
     ) {}
 }

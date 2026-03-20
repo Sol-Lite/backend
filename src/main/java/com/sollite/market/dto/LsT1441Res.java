@@ -21,6 +21,11 @@ public record LsT1441Res(
             long value,
             long total,
             long offerrem1,
-            long bidrem1
+            long bidrem1,
+            int updaycnt,
+            long offerho1,
+            long bidho1,
+            String voldiff,
+            String ex_shcode
     ) {}
 }

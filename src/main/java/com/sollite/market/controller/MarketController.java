@@ -3,6 +3,7 @@ package com.sollite.market.controller;
 import com.sollite.market.dto.*;
 import com.sollite.market.service.InstrumentService;
 import com.sollite.market.service.MarketService;
+import com.sollite.websocket.service.LsBrokerService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +17,7 @@ import java.util.List;
 public class MarketController {
     private final MarketService marketService;
     private final InstrumentService instrumentService;
+    private final LsBrokerService lsBrokerService;
 
     @GetMapping("/stocks/{stockCode}/price")
     public ResponseEntity<CurrentPriceResponse>
@@ -77,5 +79,10 @@ public class MarketController {
             @RequestParam(defaultValue = "trading-value") String type,
             @RequestParam(defaultValue = "all") String market) {
         return ResponseEntity.ok(marketService.getRanking(type, market));
+    }
+
+    @GetMapping("/debug/broker")
+    public ResponseEntity<String> debugBroker() {
+        return ResponseEntity.ok(lsBrokerService.getAllLastValues().toString());
     }
 }

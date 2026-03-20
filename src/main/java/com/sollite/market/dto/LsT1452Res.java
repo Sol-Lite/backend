@@ -17,6 +17,8 @@ public record LsT1452Res(
             String sign,
             long change,
             String diff,
-            long volume
+            long volume,
+            long jnilvolume,
+            String bef_diff
     ) {}
 }

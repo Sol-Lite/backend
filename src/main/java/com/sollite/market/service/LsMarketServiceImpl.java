@@ -552,7 +552,8 @@ class LsMarketServiceImpl implements MarketService {
                 .map(i -> new StockRankingItem(
                         rank.getAndIncrement(),
                         i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
-                        parseDiff(i.diff()), i.volume(), i.value(), i.total(), null))
+                        parseDiff(i.diff()), i.volume(), i.value() * 100L, i.total(), null,
+                        i.ex_shcode(), null, null, null, null, null, null, null, i.jnilvalue() * 100L, parseDiff(i.bef_diff())))
                 .toList();
     }
 
@@ -584,7 +585,8 @@ class LsMarketServiceImpl implements MarketService {
                 .map(i -> new StockRankingItem(
                         rank.getAndIncrement(),
                         i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
-                        parseDiff(i.diff()), i.volume(), null, null, null))
+                        parseDiff(i.diff()), i.volume(), null, null, null,
+                        null, null, null, null, null, null, null, i.jnilvolume(), null, parseDiff(i.bef_diff())))
                 .toList();
     }
 
@@ -620,7 +622,9 @@ class LsMarketServiceImpl implements MarketService {
                     return new StockRankingItem(
                             rank.getAndIncrement(),
                             i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
-                            parseDiff(i.diff()), i.volume(), i.value(), i.total(), buyRatio);
+                            parseDiff(i.diff()), i.volume(), i.value() * 100L, i.total(), buyRatio,
+                            i.ex_shcode(), i.updaycnt(), i.offerho1(), i.bidho1(), parseDiff(i.voldiff()),
+                            null, null, null, null, null);
                 })
                 .toList();
     }
@@ -654,7 +658,8 @@ class LsMarketServiceImpl implements MarketService {
                 .map(i -> new StockRankingItem(
                         rank.getAndIncrement(),
                         i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
-                        parseDiff(i.diff()), i.volume(), null, i.total(), null))
+                        parseDiff(i.diff()), i.volume(), null, i.total(), null,
+                        null, null, null, null, null, parseDiff(i.rate()), parseDiff(i.vol_rate()), null, null, null))
                 .toList();
     }
 
