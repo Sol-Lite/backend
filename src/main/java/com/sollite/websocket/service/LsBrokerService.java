@@ -49,6 +49,8 @@ public class LsBrokerService {
     private final Map<String, AtomicInteger> subscriberCount = new ConcurrentHashMap<>();
     // 현재 LS에 등록된 종목: "UH1:005930"
     private final Set<String> activeSubscriptions = ConcurrentHashMap.newKeySet();
+    // 토픽별 마지막 수신 값: "/topic/stock/trade/005930" → JSON
+    private final Map<String, String> lastValues = new ConcurrentHashMap<>();
 
     // 재연결 스케줄러
     private final ScheduledExecutorService reconnectScheduler = Executors.newSingleThreadScheduledExecutor();
@@ -90,6 +92,15 @@ public class LsBrokerService {
         // 첫 구독자 → LS에 실시간 등록
         if (current == 1 && connected.get()) {
             registerToLs(trCd, key);
+        }
+
+        // 마지막 값 즉시 전송 (신규 구독자가 다음 틱까지 기다리지 않도록)
+        String topicPrefix = TR_TOPIC_MAP.get(trCd);
+        if (topicPrefix != null) {
+            String last = lastValues.get(topicPrefix + key);
+            if (last != null) {
+                messagingTemplate.convertAndSend(topicPrefix + key, last);
+            }
         }
     }
 
@@ -213,7 +224,9 @@ public class LsBrokerService {
             if (symbol == null) return;
 
             String topic = topicPrefix + symbol;
-            messagingTemplate.convertAndSend(topic, body.toString());
+            String bodyJson = body.toString();
+            lastValues.put(topic, bodyJson);
+            messagingTemplate.convertAndSend(topic, bodyJson);
 
         } catch (Exception e) {
             log.warn("LS 메시지 처리 실패: {}", e.getMessage());
