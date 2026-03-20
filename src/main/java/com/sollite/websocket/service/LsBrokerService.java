@@ -59,6 +59,7 @@ public class LsBrokerService {
     private static final Map<String, String> TR_TOPIC_MAP = Map.of(
             "UH1", "/topic/asking/",
             "US3", "/topic/stock/trade/",
+            "CUR", "/topic/currency/",
             "GSH", "/topic/foreign/quote/",
             "GSC", "/topic/foreign/transaction/"
     );
@@ -225,6 +226,7 @@ public class LsBrokerService {
     private String extractSymbol(String trCd, JsonNode body) {
         return switch (trCd) {
             case "UH1", "US3" -> body.has("shcode") ? body.get("shcode").asText() : null;
+            case "CUR" -> body.has("base_id") ? body.get("base_id").asText() : null;
             case "GSH", "GSC" -> body.has("symbol") ? body.get("symbol").asText() : null;
             default -> null;
         };
@@ -239,6 +241,9 @@ public class LsBrokerService {
         }
         if ("UH1".equals(trCd) || "US3".equals(trCd)) {
             return String.format("%-10s", "U" + key).substring(0, 10);
+        }
+        if ("CUR".equals(trCd)) {
+            return String.format("%-6s", key).substring(0, 6);
         }
         return key;
     }
