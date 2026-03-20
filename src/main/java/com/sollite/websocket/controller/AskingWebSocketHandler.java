@@ -21,6 +21,7 @@ import reactor.core.publisher.Mono;
 import java.net.URI;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Component
@@ -33,26 +34,32 @@ public class AskingWebSocketHandler extends TextWebSocketHandler {
     private String lsWsUrl;
 
     private static final String TR_CD = "H1_";
+    private static final int MAX_SESSIONS = 100;
 
+    private final ReactorNettyWebSocketClient lsClient = new ReactorNettyWebSocketClient();
     private final Map<String, ConcurrentWebSocketSessionDecorator> frontendSessions = new ConcurrentHashMap<>();
     private final Map<String, Disposable> lsSubscriptions = new ConcurrentHashMap<>();
+    private final AtomicInteger sessionCount = new AtomicInteger(0);
 
     // 프론트 /ws/asking/{stockCode} 연결 시
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) {
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        if (sessionCount.get() >= MAX_SESSIONS) {
+            log.warn("최대 세션 수 초과: sessionId={}", session.getId());
+            session.close(CloseStatus.SERVICE_OVERLOAD);
+            return;
+        }
+
         String sessionId = session.getId();
         String stockCode = extractStockCode(session);
 
         ConcurrentWebSocketSessionDecorator safeSession = new ConcurrentWebSocketSessionDecorator(session, 5000, 65536);
         frontendSessions.put(sessionId, safeSession);
+        sessionCount.incrementAndGet();
 
         log.info("프론트 웹소켓 연결: sessionId={}, stockCode={}", sessionId, stockCode);
         connectToLs(sessionId, stockCode, safeSession);
     }
-
-    // 프론트에서 메시지 보낼 시
-    @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) {}
 
     // 프론트 연결 종료 시
     @Override
@@ -65,6 +72,7 @@ public class AskingWebSocketHandler extends TextWebSocketHandler {
             sub.dispose();
         }
         frontendSessions.remove(sessionId);
+        sessionCount.decrementAndGet();
         log.info("프론트 웹소켓 종료: sessionId={}, status={}", sessionId, status);
     }
 
@@ -77,7 +85,6 @@ public class AskingWebSocketHandler extends TextWebSocketHandler {
     // LS WebSocket 연결 + 실시간 데이터 수신
     private void connectToLs(String sessionId, String stockCode, ConcurrentWebSocketSessionDecorator frontendSession) {
         String token = lsTokenService.getAccessToken();
-        ReactorNettyWebSocketClient lsClient = new ReactorNettyWebSocketClient();
 
         Disposable subscription = lsClient.execute(URI.create(lsWsUrl), lsSession -> {
             String subMsg = buildMessage(token, "3", stockCode);
