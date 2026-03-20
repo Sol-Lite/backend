@@ -1,18 +1,21 @@
 package com.sollite.market.controller;
 
 import com.sollite.market.dto.*;
+import com.sollite.market.service.InstrumentService;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/market")
 @RequiredArgsConstructor
 public class MarketController {
     private final MarketService marketService;
+    private final InstrumentService instrumentService;
 
     @GetMapping("/stocks/{stockCode}/price")
     public ResponseEntity<CurrentPriceResponse>
@@ -62,5 +65,10 @@ public class MarketController {
     @GetMapping("/stocks/{stockCode}/orderbook")
     public ResponseEntity<OrderbookResponse> getOrderbook(@PathVariable String stockCode) {
         return ResponseEntity.ok(marketService.getOrderbook(stockCode));
+    }
+
+    @GetMapping("/stocks/search")
+    public ResponseEntity<List<InstrumentSearchResponse>> searchStocks(@RequestParam String keyword) {
+        return ResponseEntity.ok(instrumentService.search(keyword));
     }
 }

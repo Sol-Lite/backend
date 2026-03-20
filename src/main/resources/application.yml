@@ -90,6 +90,7 @@ logging:
   level:
     com.sollite: DEBUG
     org.hibernate.SQL: DEBUG
+    reactor.netty.http.client: DEBUG
 
 
 # ── LS Securities API  & Websocket ──
@@ -98,5 +99,6 @@ ls:
     url: "https://openapi.ls-sec.co.kr:8080"
     appkey: ${LS_APPKEY}
     appsecret: ${LS_APPSECRET}
+    mac-address: ${LS_MAC_ADDRESS:}
   ws:
     url: wss://openapi.ls-sec.co.kr:29443/websocket

@@ -498,23 +498,23 @@ class LsMarketServiceImpl implements MarketService {
     private OrderbookResponse getOrderbook(String stockCode, boolean isRetry) {
         String token = tokenService.getAccessToken();
         try {
-            record LsReqBody(String shcode) {}
-            record LsReq(LsReqBody t1101InBlock) {}
+            record LsReqBody(String shcode, String exchgubun) {}
+            record LsReq(LsReqBody t8450InBlock) {}
 
             String raw = lsWebClient.post()
                     .uri("/stock/market-data")
                     .header("authorization", "Bearer " + token)
                     .header("content-type", "application/json; charset=utf-8")
-                    .header("tr_cd", "t1101")
+                    .header("tr_cd", "t8450")
                     .header("tr_cont", "N")
                     .header("mac_address", DUMMY_MAC)
-                    .bodyValue(new LsReq(new LsReqBody(stockCode)))
+                    .bodyValue(new LsReq(new LsReqBody(stockCode, "U")))
                     .retrieve()
                     .bodyToMono(String.class)
                     .block();
 
-            log.debug("LS t1101 orderbook raw: {}", raw);
-            LsOrderbookRes lsRes = objectMapper.readValue(raw, LsOrderbookRes.class);
+            log.debug("LS t8450 orderbook raw: {}", raw);
+            LsOrderbookUnifiedRes lsRes = objectMapper.readValue(raw, LsOrderbookUnifiedRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
                 log.warn("LS API 호가 조회 실패: stockCode={}, msg={}", stockCode,
@@ -522,47 +522,21 @@ class LsMarketServiceImpl implements MarketService {
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
             }
 
-            LsOrderbookRes.LsOrderbookBlock b = lsRes.t1101OutBlock();
+            LsOrderbookUnifiedRes.LsOrderbookUnifiedBlock b = lsRes.t8450OutBlock();
             if (b == null) {
                 throw new BusinessException(MarketErrorCode.MARKET_DATA_NOT_FOUND);
             }
-
-            List<OrderbookResponse.OrderEntry> asks = List.of(
-                    new OrderbookResponse.OrderEntry(b.offerho1(),  b.offerrem1()),
-                    new OrderbookResponse.OrderEntry(b.offerho2(),  b.offerrem2()),
-                    new OrderbookResponse.OrderEntry(b.offerho3(),  b.offerrem3()),
-                    new OrderbookResponse.OrderEntry(b.offerho4(),  b.offerrem4()),
-                    new OrderbookResponse.OrderEntry(b.offerho5(),  b.offerrem5()),
-                    new OrderbookResponse.OrderEntry(b.offerho6(),  b.offerrem6()),
-                    new OrderbookResponse.OrderEntry(b.offerho7(),  b.offerrem7()),
-                    new OrderbookResponse.OrderEntry(b.offerho8(),  b.offerrem8()),
-                    new OrderbookResponse.OrderEntry(b.offerho9(),  b.offerrem9()),
-                    new OrderbookResponse.OrderEntry(b.offerho10(), b.offerrem10())
-            );
-
-            List<OrderbookResponse.OrderEntry> bids = List.of(
-                    new OrderbookResponse.OrderEntry(b.bidho1(),  b.bidrem1()),
-                    new OrderbookResponse.OrderEntry(b.bidho2(),  b.bidrem2()),
-                    new OrderbookResponse.OrderEntry(b.bidho3(),  b.bidrem3()),
-                    new OrderbookResponse.OrderEntry(b.bidho4(),  b.bidrem4()),
-                    new OrderbookResponse.OrderEntry(b.bidho5(),  b.bidrem5()),
-                    new OrderbookResponse.OrderEntry(b.bidho6(),  b.bidrem6()),
-                    new OrderbookResponse.OrderEntry(b.bidho7(),  b.bidrem7()),
-                    new OrderbookResponse.OrderEntry(b.bidho8(),  b.bidrem8()),
-                    new OrderbookResponse.OrderEntry(b.bidho9(),  b.bidrem9()),
-                    new OrderbookResponse.OrderEntry(b.bidho10(), b.bidrem10())
-            );
 
             return new OrderbookResponse(
                     stockCode,
                     b.hotime(),
                     b.yeprice(),
                     b.yevolume(),
-                    Double.parseDouble(b.yediff().trim()),
-                    b.offer(),
-                    b.bid(),
-                    b.toAsks(),
-                    b.toBids()
+                    b.yediff(),
+                    b.unx_offer(),
+                    b.unx_bid(),
+                    b.toUnifiedAsks(),
+                    b.toUnifiedBids()
             );
 
         } catch (BusinessException e) {
