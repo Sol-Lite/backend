@@ -19,7 +19,6 @@ public enum ForeignStockErrorCode implements ErrorCode {
         this.httpStatus = httpStatus;
     }
 
-    @Override
     public String getCode() {
         return code;
     }
@@ -29,8 +28,12 @@ public enum ForeignStockErrorCode implements ErrorCode {
         return message;
     }
 
-    @Override
     public HttpStatus getHttpStatus() {
         return httpStatus;
+    }
+
+    @Override
+    public int getStatus() {
+        return httpStatus.value();
     }
 }

@@ -3,6 +3,7 @@ package com.sollite.global.exception;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -18,6 +19,15 @@ public class GlobalExceptionHandler {
         Map<String, String> errors = new HashMap<>();
         e.getBindingResult().getFieldErrors()
                 .forEach(error -> errors.put(error.getField(), error.getDefaultMessage()));
+
+        ErrorResponse response = ErrorResponse.of(GlobalErrorCode.INVALID_INPUT, errors);
+        return ResponseEntity.status(response.status()).body(response);
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter(MissingServletRequestParameterException e) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put(e.getParameterName(), "필수 파라미터입니다");
 
         ErrorResponse response = ErrorResponse.of(GlobalErrorCode.INVALID_INPUT, errors);
         return ResponseEntity.status(response.status()).body(response);
