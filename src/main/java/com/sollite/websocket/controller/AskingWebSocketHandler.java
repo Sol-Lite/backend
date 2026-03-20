@@ -33,7 +33,7 @@ public class AskingWebSocketHandler extends TextWebSocketHandler {
     @Value("${ls.ws.url}")
     private String lsWsUrl;
 
-    private static final String TR_CD = "H1_";
+    private static final String TR_CD = "UH1";
     private static final int MAX_SESSIONS = 100;
 
     private final ReactorNettyWebSocketClient lsClient = new ReactorNettyWebSocketClient();
@@ -87,6 +87,7 @@ public class AskingWebSocketHandler extends TextWebSocketHandler {
         String token = lsTokenService.getAccessToken();
 
         Disposable subscription = lsClient.execute(URI.create(lsWsUrl), lsSession -> {
+            log.info("LS WebSocket 연결 성공: sessionId={}", sessionId);
             String subMsg = buildMessage(token, "3", stockCode);
             Mono<Void> send = lsSession.send(
                     Mono.just(lsSession.textMessage(subMsg))
@@ -133,9 +134,10 @@ public class AskingWebSocketHandler extends TextWebSocketHandler {
 
     // LS WebSocket 구독/해제 메시지
     private String buildMessage(String token, String trType, String stockCode) {
+        String trKey = "U" + stockCode + "   ";
         return String.format(
                 "{\"header\":{\"token\":\"%s\",\"tr_type\":\"%s\"},\"body\":{\"tr_cd\":\"%s\",\"tr_key\":\"%s\"}}",
-                token, trType, TR_CD, stockCode
+                token, trType, TR_CD, trKey
         );
     }
 
