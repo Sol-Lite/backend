@@ -69,30 +69,33 @@ public class StompSubscriptionListener {
     /**
      * STOMP destination → (trCd, key) 파싱
      *
-     * /topic/asking/005930           → ("UH1", "005930")
-     * /topic/foreign/quote/TSLA      → ("GSH", "TSLA")
+     * /topic/asking/005930            → ("UH1", "005930")
+     * /topic/foreign/quote/TSLA       → ("GSH", "TSLA")
      * /topic/foreign/transaction/TSLA → ("GSC", "TSLA")
+     * /topic/index/domestic/001       → ("IJ_", "001")
+     * /topic/index/foreign/SPI@SPX    → ("MK2", "SPI@SPX")
      */
     private SubscriptionInfo parseDestination(String destination) {
         if (destination.startsWith("/topic/asking/")) {
-            String stockCode = destination.substring("/topic/asking/".length());
-            return new SubscriptionInfo("UH1", stockCode);
+            return new SubscriptionInfo("UH1", destination.substring("/topic/asking/".length()));
         }
         if (destination.startsWith("/topic/stock/trade/")) {
-            String stockCode = destination.substring("/topic/stock/trade/".length());
-            return new SubscriptionInfo("US3", stockCode);
+            return new SubscriptionInfo("US3", destination.substring("/topic/stock/trade/".length()));
         }
         if (destination.startsWith("/topic/currency/")) {
-            String currencyCode = destination.substring("/topic/currency/".length());
-            return new SubscriptionInfo("CUR", currencyCode);
+            return new SubscriptionInfo("CUR", destination.substring("/topic/currency/".length()));
         }
         if (destination.startsWith("/topic/foreign/quote/")) {
-            String symbol = destination.substring("/topic/foreign/quote/".length());
-            return new SubscriptionInfo("GSH", symbol);
+            return new SubscriptionInfo("GSH", destination.substring("/topic/foreign/quote/".length()));
         }
         if (destination.startsWith("/topic/foreign/transaction/")) {
-            String symbol = destination.substring("/topic/foreign/transaction/".length());
-            return new SubscriptionInfo("GSC", symbol);
+            return new SubscriptionInfo("GSC", destination.substring("/topic/foreign/transaction/".length()));
+        }
+        if (destination.startsWith("/topic/index/domestic/")) {
+            return new SubscriptionInfo("IJ_", destination.substring("/topic/index/domestic/".length()));
+        }
+        if (destination.startsWith("/topic/index/foreign/")) {
+            return new SubscriptionInfo("MK2", destination.substring("/topic/index/foreign/".length()));
         }
         return null;
     }

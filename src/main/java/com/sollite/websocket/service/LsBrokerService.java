@@ -8,6 +8,7 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.socket.WebSocketMessage;
@@ -17,6 +18,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,6 +36,10 @@ public class LsBrokerService {
     private final LsTokenService lsTokenService;
     private final ObjectMapper objectMapper;
     private final SimpMessagingTemplate messagingTemplate;
+    private final StringRedisTemplate redisTemplate;
+
+    private static final String INDEX_SNAPSHOT_PREFIX = "index:snapshot:";
+    private static final Duration INDEX_SNAPSHOT_TTL = Duration.ofHours(48);
 
     @Value("${ls.ws.url}")
     private String lsWsUrl;
@@ -63,7 +69,17 @@ public class LsBrokerService {
             "US3", "/topic/stock/trade/",
             "CUR", "/topic/currency/",
             "GSH", "/topic/foreign/quote/",
-            "GSC", "/topic/foreign/transaction/"
+            "GSC", "/topic/foreign/transaction/",
+            "IJ_", "/topic/index/domestic/",
+            "MK2", "/topic/index/foreign/"
+    );
+
+    // 항상 유지할 영구 구독 (지수)
+    private static final Set<String> PERMANENT_SUBSCRIPTIONS = Set.of(
+            "IJ_:001",
+            "IJ_:101",
+            "MK2:SPI@SPX",
+            "MK2:NAS@IXIC"
     );
 
     @PostConstruct
@@ -228,6 +244,11 @@ public class LsBrokerService {
             lastValues.put(topic, bodyJson);
             messagingTemplate.convertAndSend(topic, bodyJson);
 
+            // 지수 데이터는 Redis에 스냅샷 저장 (장 마감 후에도 종가 제공)
+            if (topic.startsWith("/topic/index/")) {
+                redisTemplate.opsForValue().set(INDEX_SNAPSHOT_PREFIX + topic, bodyJson, INDEX_SNAPSHOT_TTL);
+            }
+
         } catch (Exception e) {
             log.warn("LS 메시지 처리 실패: {}", e.getMessage());
         }
@@ -241,6 +262,8 @@ public class LsBrokerService {
             case "UH1", "US3" -> body.has("shcode") ? body.get("shcode").asText() : null;
             case "CUR" -> body.has("base_id") ? body.get("base_id").asText() : null;
             case "GSH", "GSC" -> body.has("symbol") ? body.get("symbol").asText() : null;
+            case "IJ_" -> body.has("upcode") ? body.get("upcode").asText() : null;
+            case "MK2" -> body.has("xsymbol") ? body.get("xsymbol").asText().trim() : null;
             default -> null;
         };
     }
@@ -257,6 +280,12 @@ public class LsBrokerService {
         }
         if ("CUR".equals(trCd)) {
             return String.format("%-6s", key).substring(0, 6);
+        }
+        if ("IJ_".equals(trCd)) {
+            return String.format("%-8s", key).substring(0, 8);
+        }
+        if ("MK2".equals(trCd)) {
+            return String.format("%-16s", key).substring(0, 16);
         }
         return key;
     }
@@ -291,6 +320,25 @@ public class LsBrokerService {
     }
 
     /**
+     * 마지막 수신 값 조회 (IndexService 등에서 초기값으로 사용)
+     * 인메모리 미스 시 Redis 스냅샷 폴백 (서버 재시작 / 장 마감 후 종가 제공)
+     */
+    public Map<String, String> getAllLastValues() {
+        return Map.copyOf(lastValues);
+    }
+
+    public String getLastValue(String topic) {
+        String value = lastValues.get(topic);
+        if (value == null && topic.startsWith("/topic/index/")) {
+            value = redisTemplate.opsForValue().get(INDEX_SNAPSHOT_PREFIX + topic);
+            if (value != null) {
+                lastValues.put(topic, value); // 인메모리 복구
+            }
+        }
+        return value;
+    }
+
+    /**
      * 재연결 후 기존 구독 복원
      */
     private void restoreSubscriptions() {
@@ -302,6 +350,12 @@ public class LsBrokerService {
                 registerToLs(parts[0], parts[1]);
                 log.info("구독 복원: {}", subscriptionKey);
             }
+        }
+        // 지수 영구 구독 (클라이언트 구독 여부와 무관하게 항상 유지)
+        for (String perm : PERMANENT_SUBSCRIPTIONS) {
+            String[] parts = perm.split(":", 2);
+            registerToLs(parts[0], parts[1]);
+            log.info("영구 구독 등록: {}", perm);
         }
     }
 }
