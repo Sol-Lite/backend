@@ -50,6 +50,8 @@ public class CacheConfig {
                 Map.entry("market:finance",      base.entryTtl(Duration.ofHours(1))),
                 Map.entry("market:opinion",      base.entryTtl(Duration.ofHours(1))),
                 Map.entry("market:investor",     base.entryTtl(Duration.ofHours(1))),
+                // 국내주식 순위
+                Map.entry("market:ranking",          base.entryTtl(Duration.ofSeconds(30))),
                 // 해외주식
                 Map.entry("foreign:price",          base.entryTtl(Duration.ofSeconds(5))),
                 Map.entry("foreign:orderbook",      base.entryTtl(Duration.ofSeconds(5))),

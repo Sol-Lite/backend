@@ -71,4 +71,11 @@ public class MarketController {
     public ResponseEntity<List<InstrumentSearchResponse>> searchStocks(@RequestParam String keyword) {
         return ResponseEntity.ok(instrumentService.search(keyword));
     }
+
+    @GetMapping("/stocks/ranking")
+    public ResponseEntity<List<StockRankingItem>> getRanking(
+            @RequestParam(defaultValue = "trading-value") String type,
+            @RequestParam(defaultValue = "all") String market) {
+        return ResponseEntity.ok(marketService.getRanking(type, market));
+    }
 }

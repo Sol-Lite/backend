@@ -9,9 +9,10 @@ import com.sollite.market.dto.FinanceResponse;
 import com.sollite.market.dto.OpinionResponse;
 import com.sollite.market.dto.InvestorResponse;
 import com.sollite.market.dto.OrderbookResponse;
-import org.hibernate.query.Order;
+import com.sollite.market.dto.StockRankingItem;
 
 import java.time.LocalDate;
+import java.util.List;
 
 public interface MarketService {
     CurrentPriceResponse getCurrentPrice(String stockCode);
@@ -22,4 +23,5 @@ public interface MarketService {
     OpinionResponse getOpinion(String stockCode);
     InvestorResponse getInvestor(String stockCode);
     OrderbookResponse getOrderbook(String stockCode);
+    List<StockRankingItem> getRanking(String type, String market);
 }
