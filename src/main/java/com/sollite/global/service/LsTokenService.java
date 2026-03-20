@@ -22,7 +22,7 @@ public class LsTokenService {
     private String cachedToken;
     private Instant tokenExpiresAt;
 
-    @Value("${ls.api.appkey}")    private String appKey;
+    @Value("${ls.api.appkey}") private String appKey;
     @Value("${ls.api.appsecret}") private String appSecret;
 
     public synchronized String getAccessToken() {
