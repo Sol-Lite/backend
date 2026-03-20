@@ -8,7 +8,7 @@ import com.sollite.market.exception.MarketErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.hibernate.query.Order;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -28,6 +28,7 @@ class LsMarketServiceImpl implements MarketService {
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
 
     @Override
+    @Cacheable(cacheNames = "market:price", key = "#stockCode")
     public CurrentPriceResponse getCurrentPrice(String stockCode) {
         return getCurrentPrice(stockCode, false);
     }
@@ -81,6 +82,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:daily", key = "#stockCode + ':' + #date")
     public DailyPriceResponse getDailyPrice(String stockCode, LocalDate date) {
         return getDailyPrice(stockCode, date, false);
     }
@@ -146,6 +148,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:chart", key = "#stockCode + ':' + #period + ':' + #startDate + ':' + #endDate")
     public ChartResponse getChart(String stockCode, ChartPeriod period, LocalDate startDate, LocalDate endDate) {
         return getChart(stockCode, period, startDate, endDate, false);
     }
@@ -222,6 +225,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:minute-chart", key = "#stockCode + ':' + #ncnt")
     public MinuteChartResponse getMinuteChart(String stockCode, int ncnt) {
         return getMinuteChart(stockCode, ncnt, false);
     }
@@ -294,6 +298,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:finance", key = "#stockCode")
     public FinanceResponse getFinance(String stockCode) {
         return getFinance(stockCode, false);
     }
@@ -360,6 +365,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:opinion", key = "#stockCode")
     public OpinionResponse getOpinion(String stockCode) {
         return getOpinion(stockCode, false);
     }
@@ -420,6 +426,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:investor", key = "#stockCode")
     public InvestorResponse getInvestor(String stockCode) {
         return getInvestor(stockCode, false);
     }
@@ -483,6 +490,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:orderbook", key = "#stockCode")
     public OrderbookResponse getOrderbook(String stockCode) {
         return getOrderbook(stockCode, false);
     }

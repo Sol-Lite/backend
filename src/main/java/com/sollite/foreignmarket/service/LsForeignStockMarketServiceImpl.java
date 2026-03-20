@@ -7,6 +7,7 @@ import com.sollite.foreignmarket.exception.ForeignStockErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -29,6 +30,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HHmmss");
 
     @Override
+    @Cacheable(cacheNames = "foreign:price", key = "#stockCode + ':' + #exchcd")
     public ForeignCurrentPriceResponse getCurrentPrice(String stockCode, String exchcd) {
         return getCurrentPrice(stockCode, exchcd, false);
     }
@@ -123,6 +125,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:orderbook", key = "#stockCode + ':' + #exchcd")
     public ForeignOrderbookResponse getOrderbook(String stockCode, String exchcd) {
         return getOrderbook(stockCode, exchcd, false);
     }
@@ -211,6 +214,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:info", key = "#stockCode + ':' + #exchcd")
     public ForeignStockInfoResponse getInfo(String stockCode, String exchcd) {
         return getInfo(stockCode, exchcd, false);
     }
@@ -293,6 +297,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:chart", key = "#stockCode + ':' + #exchcd + ':' + #period + ':' + #date")
     public ForeignChartResponse getChart(String stockCode, String exchcd, ForeignChartPeriod period, LocalDate date) {
         return getChart(stockCode, exchcd, period, date, false);
     }
@@ -365,6 +370,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:tick-chart", key = "#stockCode + ':' + #exchcd + ':' + #ncnt")
     public ForeignTickChartResponse getTickChart(String stockCode, String exchcd, int ncnt) {
         return getTickChart(stockCode, exchcd, ncnt, false);
     }
@@ -448,6 +454,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:minute-chart", key = "#stockCode + ':' + #exchcd + ':' + #nmin")
     public ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin) {
         return getMinuteChart(stockCode, exchcd, nmin, false);
     }
@@ -533,6 +540,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:advanced-chart", key = "#stockCode + ':' + #exchcd + ':' + #period + ':' + #startDate + ':' + #endDate")
     public ForeignChartResponse getAdvancedChart(String stockCode, String exchcd, ForeignChartPeriod period, LocalDate startDate, LocalDate endDate) {
         return getAdvancedChart(stockCode, exchcd, period, startDate, endDate, false);
     }
