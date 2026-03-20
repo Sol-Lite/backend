@@ -35,8 +35,8 @@ spring:
     mongodb:
       uri: mongodb+srv://ADMIN:${MONGO_PASSWORD}@sqllitecluster.fdieckp.mongodb.net/sollite?retryWrites=true&w=majority
     redis:
-      host: redis-14247.c340.ap-northeast-2-1.ec2.cloud.redislabs.com
-      port: 14247
+      host: redis-15024.c340.ap-northeast-2-1.ec2.cloud.redislabs.com
+      port: 15024
       password: ${REDIS_PASSWORD}
       ssl:
         enabled: true
