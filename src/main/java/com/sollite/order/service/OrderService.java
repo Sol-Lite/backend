@@ -39,6 +39,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -70,6 +71,7 @@ public class OrderService {
     private final LsBrokerService lsBrokerService;
     private final MarketService marketService;
     private final ForeignStockMarketService foreignStockMarketService;
+    private final ObjectMapper objectMapper;
 
     // -----------------------------------------------------------------------
     // 주문 접수 (매수/매도 즉시 체결 시뮬레이션)
@@ -268,7 +270,12 @@ public class OrderService {
                     .findByAccount_AccountIdAndSimulationRound_SimulationRoundIdOrderByRequestedAtDesc(
                             account.getAccountId(), round.getSimulationRoundId());
         } else {
-            OrderStatus orderStatus = OrderStatus.valueOf(status.toUpperCase());
+            OrderStatus orderStatus;
+            try {
+                orderStatus = OrderStatus.valueOf(status.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new BusinessException(OrderErrorCode.INVALID_ORDER_STATUS);
+            }
             orders = orderRepository
                     .findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndOrderStatusOrderByRequestedAtDesc(
                             account.getAccountId(), round.getSimulationRoundId(), orderStatus);
@@ -495,7 +502,7 @@ public class OrderService {
         String lastJson = lsBrokerService.getLastValue(topic);
         if (lastJson != null) {
             try {
-                var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(lastJson);
+                var node = objectMapper.readTree(lastJson);
                 if (node.has("price")) {
                     return new BigDecimal(node.get("price").asText().replace(",", "").trim());
                 }

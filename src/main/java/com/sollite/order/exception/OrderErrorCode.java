@@ -18,7 +18,8 @@ public enum OrderErrorCode implements ErrorCode {
     INVALID_ORDER_PRICE(400, "주문 가격이 유효하지 않습니다"),
     INVALID_ORDER_QUANTITY(400, "주문 수량은 1 이상이어야 합니다"),
     DUPLICATE_ORDER(409, "이미 처리된 주문입니다 (중복 요청)"),
-    ORDER_ACCESS_DENIED(403, "본인의 주문만 접근할 수 있습니다");
+    ORDER_ACCESS_DENIED(403, "본인의 주문만 접근할 수 있습니다"),
+    INVALID_ORDER_STATUS(400, "유효하지 않은 주문 상태 값입니다");
 
     private final int status;
     private final String message;

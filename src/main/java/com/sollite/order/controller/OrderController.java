@@ -9,6 +9,7 @@ import com.sollite.order.service.OrderService;
 import com.sollite.user.dto.MessageResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -38,7 +39,7 @@ public class OrderController {
             Authentication authentication,
             @Valid @RequestBody PlaceOrderRequest request) {
         Long userId = AuthUtil.getUserId(authentication);
-        return ResponseEntity.ok(orderService.placeOrder(userId, request));
+        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.placeOrder(userId, request));
     }
 
     /**

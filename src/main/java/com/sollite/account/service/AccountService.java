@@ -13,10 +13,10 @@ import com.sollite.account.exception.AccountErrorCode;
 import com.sollite.balance.domain.entity.CashBalance;
 import com.sollite.balance.domain.repository.CashBalanceRepository;
 import com.sollite.balance.domain.repository.HoldingRepository;
+import com.sollite.balance.exception.BalanceErrorCode;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.order.domain.enums.OrderStatus;
 import com.sollite.order.domain.repository.OrderRepository;
-import com.sollite.order.exception.OrderErrorCode;
 import com.sollite.user.domain.entity.User;
 import com.sollite.user.domain.repository.UserRepository;
 import com.sollite.user.exception.UserErrorCode;
@@ -195,13 +195,13 @@ public class AccountService {
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
 
         // 잔고 > 0 이면 폐쇄 불가
-        cashBalanceRepository.findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndCurrencyCode(
+        CashBalance cb = cashBalanceRepository
+                .findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndCurrencyCode(
                         account.getAccountId(), currentRound.getSimulationRoundId(), "KRW")
-                .ifPresent(cb -> {
-                    if (cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
-                        throw new BusinessException(AccountErrorCode.ACCOUNT_CLOSE_BALANCE_REMAINS);
-                    }
-                });
+                .orElseThrow(() -> new BusinessException(BalanceErrorCode.CASH_BALANCE_NOT_FOUND));
+        if (cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
+            throw new BusinessException(AccountErrorCode.ACCOUNT_CLOSE_BALANCE_REMAINS);
+        }
 
         // 보유 주식 있으면 폐쇄 불가
         boolean hasHoldings = holdingRepository
@@ -218,7 +218,7 @@ public class AccountService {
                         account.getAccountId(), currentRound.getSimulationRoundId(), List.of(OrderStatus.PENDING))
                 .isEmpty();
         if (hasPendingOrders) {
-            throw new BusinessException(OrderErrorCode.ORDER_NOT_CANCELLABLE);
+            throw new BusinessException(AccountErrorCode.ACCOUNT_CLOSE_PENDING_ORDER_EXISTS);
         }
 
         currentRound.close(RoundEndReasonCode.ACCOUNT_CLOSED);
