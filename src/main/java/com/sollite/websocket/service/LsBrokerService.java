@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.global.service.LsTokenService;
 import com.sollite.market.domain.repository.InstrumentRepository;
+import com.sollite.order.event.MarketTickEvent;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -40,6 +42,7 @@ public class LsBrokerService {
     private final SimpMessagingTemplate messagingTemplate;
     private final StringRedisTemplate redisTemplate;
     private final InstrumentRepository instrumentRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     private static final String INDEX_SNAPSHOT_PREFIX = "index:snapshot:";
     private static final Duration INDEX_SNAPSHOT_TTL = Duration.ofHours(48);
@@ -288,10 +291,39 @@ public class LsBrokerService {
                 redisTemplate.opsForValue().set(INDEX_SNAPSHOT_PREFIX + topic, bodyJson, INDEX_SNAPSHOT_TTL);
             }
 
+            // 체결 틱(US3/GSC)인 경우 주문 매칭용 내부 이벤트 발행
+            if ("US3".equals(trCd) || "GSC".equals(trCd)) {
+                java.math.BigDecimal tickPrice = extractTradePrice(trCd, body);
+                if (tickPrice != null) {
+                    applicationEventPublisher.publishEvent(
+                            new MarketTickEvent(symbol, tickPrice, trCd, java.time.Instant.now()));
+                }
+            }
+
         } catch (Exception e) {
             log.error("[LS-MSG] 처리 예외: {}, payload={}", e.getMessage(),
                     payload.length() > 200 ? payload.substring(0, 200) : payload, e);
         }
+    }
+
+    /**
+     * 체결가 추출 (주문 매칭용)
+     * US3(국내체결): price 필드
+     * GSC(해외체결): price 필드
+     */
+    private java.math.BigDecimal extractTradePrice(String trCd, JsonNode body) {
+        try {
+            String priceField = "price";
+            if (body.has(priceField)) {
+                String raw = body.get(priceField).asText().replace(",", "").trim();
+                if (!raw.isEmpty()) {
+                    return new java.math.BigDecimal(raw);
+                }
+            }
+        } catch (NumberFormatException e) {
+            log.warn("[LS-MSG] 체결가 파싱 실패: trCd={}, body={}", trCd, body);
+        }
+        return null;
     }
 
     /**

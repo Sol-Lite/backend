@@ -9,20 +9,17 @@ import com.sollite.account.exception.AccountErrorCode;
 import com.sollite.balance.domain.entity.CashBalance;
 import com.sollite.balance.domain.entity.CashLedger;
 import com.sollite.balance.domain.entity.Holding;
-import com.sollite.balance.domain.entity.PositionLedger;
 import com.sollite.balance.domain.enums.CashEntryType;
-import com.sollite.balance.domain.enums.PositionEntryType;
 import com.sollite.balance.domain.repository.CashBalanceRepository;
 import com.sollite.balance.domain.repository.CashLedgerRepository;
 import com.sollite.balance.domain.repository.HoldingRepository;
-import com.sollite.balance.domain.repository.PositionLedgerRepository;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.market.domain.entity.Instrument;
 import com.sollite.market.domain.repository.InstrumentRepository;
-import com.sollite.order.domain.entity.Execution;
 import com.sollite.order.domain.entity.Order;
 import com.sollite.order.domain.entity.OrderEvent;
 import com.sollite.order.domain.enums.OrderEventType;
+import com.sollite.order.domain.enums.OrderKind;
 import com.sollite.order.domain.enums.OrderSide;
 import com.sollite.order.domain.enums.OrderStatus;
 import com.sollite.order.domain.repository.ExecutionRepository;
@@ -34,6 +31,9 @@ import com.sollite.order.dto.OrderDetailResponse;
 import com.sollite.order.dto.OrderResponse;
 import com.sollite.order.dto.PlaceOrderRequest;
 import com.sollite.order.exception.OrderErrorCode;
+import com.sollite.foreignmarket.service.ForeignStockMarketService;
+import com.sollite.market.service.MarketService;
+import com.sollite.websocket.service.LsBrokerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -64,7 +64,12 @@ public class OrderService {
     private final CashBalanceRepository cashBalanceRepository;
     private final CashLedgerRepository cashLedgerRepository;
     private final HoldingRepository holdingRepository;
-    private final PositionLedgerRepository positionLedgerRepository;
+    private final OrderExecutionService orderExecutionService;
+    private final OrderMatchingService orderMatchingService;
+    private final OrderWaitingSubscriptionManager subscriptionManager;
+    private final LsBrokerService lsBrokerService;
+    private final MarketService marketService;
+    private final ForeignStockMarketService foreignStockMarketService;
 
     // -----------------------------------------------------------------------
     // 주문 접수 (매수/매도 즉시 체결 시뮬레이션)
@@ -150,7 +155,19 @@ public class OrderService {
         // 4. 가용금액 차감 (reserve)
         cashBalance.reserveForBuy(cost);
 
-        // 5. OrderEvent: PLACED
+        // 5. CashLedger: BUY_RESERVE
+        cashLedgerRepository.save(CashLedger.builder()
+                .account(account)
+                .simulationRound(round)
+                .currencyCode(currencyCode)
+                .entryType(CashEntryType.BUY_RESERVE)
+                .amountDelta(cost.negate())
+                .balanceAfter(cashBalance.getAvailableAmount())
+                .referenceType("ORDER")
+                .referenceId(String.valueOf(order.getOrderId()))
+                .build());
+
+        // 6. OrderEvent: PLACED
         orderEventRepository.save(OrderEvent.builder()
                 .order(order)
                 .eventType(OrderEventType.PLACED)
@@ -158,89 +175,20 @@ public class OrderService {
                 .afterStatus(OrderStatus.PENDING)
                 .build());
 
-        // 6. 즉시 체결 처리
-        fillBuyOrder(order, account, round, instrument, cashBalance, cost, currencyCode, fillPrice);
+        log.info("[ORDER] 매수 주문 접수 — orderId={}, kind={}, instrument={}, qty={}, price={}",
+                order.getOrderId(), req.orderKind(), instrument.getStockCode(), req.orderQuantity(), fillPrice);
 
-        log.info("[ORDER] 매수 체결 완료 — orderId={}, instrument={}, qty={}, price={}",
-                order.getOrderId(), instrument.getStockCode(), req.orderQuantity(), fillPrice);
+        // 7. LIMIT → PENDING 유지 + 구독 hold + 즉시 매칭 검사
+        //    MARKET / CURRENT_PRICE → 즉시 체결
+        if (req.orderKind() == OrderKind.LIMIT) {
+            subscriptionManager.hold(order.getOrderId(), instrument.getMarketType(), instrument.getStockCode());
+            BigDecimal lastPrice = resolveLastPrice(instrument);
+            orderMatchingService.tryImmediateMatch(order, lastPrice);
+        } else {
+            orderExecutionService.execute(order.getOrderId(), fillPrice);
+        }
 
         return OrderResponse.from(order);
-    }
-
-    private void fillBuyOrder(Order order, Account account, SimulationRound round,
-                               Instrument instrument, CashBalance cashBalance,
-                               BigDecimal cost, String currencyCode, BigDecimal fillPrice) {
-        // 1. Order → FILLED
-        order.fill();
-
-        // 2. Execution INSERT
-        Execution execution = Execution.builder()
-                .order(order)
-                .account(account)
-                .simulationRound(round)
-                .instrument(instrument)
-                .executionNo(generateExecutionNo())
-                .orderSide(OrderSide.BUY)
-                .executionPrice(fillPrice)
-                .executionQuantity(order.getOrderQuantity())
-                .grossAmount(cost)
-                .feeAmount(BigDecimal.ZERO)
-                .taxAmount(BigDecimal.ZERO)
-                .netAmount(cost)
-                .build();
-        executionRepository.save(execution);
-
-        // 3. CashLedger: BUY_SETTLE (total 차감)
-        cashBalance.settleForBuy(cost);
-        cashLedgerRepository.save(CashLedger.builder()
-                .account(account)
-                .simulationRound(round)
-                .currencyCode(currencyCode)
-                .entryType(CashEntryType.BUY_SETTLE)
-                .amountDelta(cost.negate())
-                .balanceAfter(cashBalance.getTotalAmount())
-                .referenceType("EXECUTION")
-                .referenceId(String.valueOf(execution.getExecutionId()))
-                .build());
-
-        // 4. Holdings UPSERT (SELECT FOR UPDATE)
-        Holding holding = holdingRepository
-                .findForUpdate(account.getAccountId(), round.getSimulationRoundId(), instrument.getInstrumentId())
-                .orElseGet(() -> Holding.builder()
-                        .account(account)
-                        .simulationRound(round)
-                        .instrument(instrument)
-                        .holdingQuantity(0L)
-                        .availableQuantity(0L)
-                        .avgBuyPrice(BigDecimal.ZERO)
-                        .avgBuyExchangeRate(BigDecimal.ONE)
-                        .build());
-
-        holding.addBuyFill(order.getOrderQuantity(), fillPrice);
-        holdingRepository.save(holding);
-
-        // 5. PositionLedger: BUY_FILL
-        positionLedgerRepository.save(PositionLedger.builder()
-                .account(account)
-                .simulationRound(round)
-                .instrument(instrument)
-                .entryType(PositionEntryType.BUY_FILL)
-                .quantityDelta(order.getOrderQuantity())
-                .holdingQuantityAfter(holding.getHoldingQuantity())
-                .avgBuyPriceAfter(holding.getAvgBuyPrice())
-                .referenceType("EXECUTION")
-                .referenceId(String.valueOf(execution.getExecutionId()))
-                .build());
-
-        // 6. OrderEvent: FILLED
-        orderEventRepository.save(OrderEvent.builder()
-                .order(order)
-                .eventType(OrderEventType.FILLED)
-                .beforeStatus(OrderStatus.PENDING)
-                .afterStatus(OrderStatus.FILLED)
-                .referenceType("EXECUTION")
-                .referenceId(String.valueOf(execution.getExecutionId()))
-                .build());
     }
 
     // -----------------------------------------------------------------------
@@ -249,9 +197,6 @@ public class OrderService {
 
     private OrderResponse processSellOrder(Account account, SimulationRound round, Instrument instrument,
                                            PlaceOrderRequest req, String idempotencyKey, BigDecimal fillPrice) {
-        BigDecimal proceeds = fillPrice.multiply(BigDecimal.valueOf(req.orderQuantity()));
-        String currencyCode = instrument.getCurrencyCode();
-
         // 1. holdings SELECT FOR UPDATE
         Holding holding = holdingRepository
                 .findForUpdate(account.getAccountId(), round.getSimulationRoundId(), instrument.getInstrumentId())
@@ -288,81 +233,20 @@ public class OrderService {
                 .afterStatus(OrderStatus.PENDING)
                 .build());
 
-        // 6. 즉시 체결 처리
-        fillSellOrder(order, account, round, instrument, holding, proceeds, currencyCode, fillPrice);
+        log.info("[ORDER] 매도 주문 접수 — orderId={}, kind={}, instrument={}, qty={}, price={}",
+                order.getOrderId(), req.orderKind(), instrument.getStockCode(), req.orderQuantity(), fillPrice);
 
-        log.info("[ORDER] 매도 체결 완료 — orderId={}, instrument={}, qty={}, price={}",
-                order.getOrderId(), instrument.getStockCode(), req.orderQuantity(), fillPrice);
+        // 6. LIMIT → PENDING 유지 + 구독 hold + 즉시 매칭 검사
+        //    MARKET / CURRENT_PRICE → 즉시 체결
+        if (req.orderKind() == OrderKind.LIMIT) {
+            subscriptionManager.hold(order.getOrderId(), instrument.getMarketType(), instrument.getStockCode());
+            BigDecimal lastPrice = resolveLastPrice(instrument);
+            orderMatchingService.tryImmediateMatch(order, lastPrice);
+        } else {
+            orderExecutionService.execute(order.getOrderId(), fillPrice);
+        }
 
         return OrderResponse.from(order);
-    }
-
-    private void fillSellOrder(Order order, Account account, SimulationRound round,
-                                Instrument instrument, Holding holding,
-                                BigDecimal proceeds, String currencyCode, BigDecimal fillPrice) {
-        // 1. Order → FILLED
-        order.fill();
-
-        // 2. Execution INSERT
-        Execution execution = Execution.builder()
-                .order(order)
-                .account(account)
-                .simulationRound(round)
-                .instrument(instrument)
-                .executionNo(generateExecutionNo())
-                .orderSide(OrderSide.SELL)
-                .executionPrice(fillPrice)
-                .executionQuantity(order.getOrderQuantity())
-                .grossAmount(proceeds)
-                .feeAmount(BigDecimal.ZERO)
-                .taxAmount(BigDecimal.ZERO)
-                .netAmount(proceeds)
-                .build();
-        executionRepository.save(execution);
-
-        // 3. cash_balances UPDATE (available + total 모두 증가)
-        CashBalance cashBalance = cashBalanceRepository.findForUpdate(
-                        account.getAccountId(), round.getSimulationRoundId(), currencyCode)
-                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
-        cashBalance.settleForSell(proceeds);
-
-        // 4. CashLedger: SELL_SETTLE
-        cashLedgerRepository.save(CashLedger.builder()
-                .account(account)
-                .simulationRound(round)
-                .currencyCode(currencyCode)
-                .entryType(CashEntryType.SELL_SETTLE)
-                .amountDelta(proceeds)
-                .balanceAfter(cashBalance.getTotalAmount())
-                .referenceType("EXECUTION")
-                .referenceId(String.valueOf(execution.getExecutionId()))
-                .build());
-
-        // 5. Holdings UPDATE: holding_quantity 차감 (available은 접수 시 이미 차감됨)
-        holding.subtractSellFill(order.getOrderQuantity());
-
-        // 6. PositionLedger: SELL_FILL
-        positionLedgerRepository.save(PositionLedger.builder()
-                .account(account)
-                .simulationRound(round)
-                .instrument(instrument)
-                .entryType(PositionEntryType.SELL_FILL)
-                .quantityDelta(-order.getOrderQuantity())
-                .holdingQuantityAfter(holding.getHoldingQuantity())
-                .avgBuyPriceAfter(holding.getAvgBuyPrice())
-                .referenceType("EXECUTION")
-                .referenceId(String.valueOf(execution.getExecutionId()))
-                .build());
-
-        // 7. OrderEvent: FILLED
-        orderEventRepository.save(OrderEvent.builder()
-                .order(order)
-                .eventType(OrderEventType.FILLED)
-                .beforeStatus(OrderStatus.PENDING)
-                .afterStatus(OrderStatus.FILLED)
-                .referenceType("EXECUTION")
-                .referenceId(String.valueOf(execution.getExecutionId()))
-                .build());
     }
 
     // -----------------------------------------------------------------------
@@ -458,6 +342,11 @@ public class OrderService {
                 .afterStatus(OrderStatus.CANCELLED)
                 .build());
 
+        // LIMIT 주문 구독 해제
+        if (order.getOrderKind() == OrderKind.LIMIT) {
+            subscriptionManager.release(orderId);
+        }
+
         log.info("[ORDER] 주문 취소 완료 — orderId={}", orderId);
         return OrderResponse.from(order);
     }
@@ -547,6 +436,13 @@ public class OrderService {
                 .build());
 
         log.info("[ORDER] 주문 정정 완료 — orderId={}", orderId);
+
+        // 정정 후 즉시 매칭 검사 (가격 변경으로 이미 체결 가능할 수 있음)
+        if (order.getOrderKind() == OrderKind.LIMIT) {
+            BigDecimal lastPrice = resolveLastPrice(instrument);
+            orderMatchingService.tryImmediateMatch(order, lastPrice);
+        }
+
         return OrderResponse.from(order);
     }
 
@@ -555,11 +451,20 @@ public class OrderService {
     // -----------------------------------------------------------------------
 
     private BigDecimal resolveFillPrice(PlaceOrderRequest req, Instrument instrument) {
-        if (req.orderPrice() != null && req.orderPrice().compareTo(BigDecimal.ZERO) > 0) {
+        // LIMIT: 반드시 클라이언트가 가격 지정
+        if (req.orderKind() == OrderKind.LIMIT) {
+            if (req.orderPrice() == null || req.orderPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException(OrderErrorCode.INVALID_ORDER_PRICE);
+            }
             return req.orderPrice();
         }
-        // MARKET 주문이고 orderPrice가 null인 경우 — 클라이언트가 가격을 보내지 않으면 예외
-        throw new BusinessException(OrderErrorCode.INVALID_ORDER_PRICE);
+
+        // MARKET / CURRENT_PRICE: 서버가 현재가를 결정한다 (클라이언트 가격 무시)
+        BigDecimal currentPrice = fetchCurrentPrice(instrument);
+        if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(OrderErrorCode.INVALID_ORDER_PRICE);
+        }
+        return currentPrice;
     }
 
     private String resolveIdempotencyKey(String clientKey) {
@@ -575,10 +480,63 @@ public class OrderService {
         return "ORD" + timestamp + random;
     }
 
-    private String generateExecutionNo() {
-        String timestamp = LocalDateTime.now().format(ORDER_NO_FMT);
-        int random = ThreadLocalRandom.current().nextInt(1000, 9999);
-        return "EXE" + timestamp + random;
+    /**
+     * 마지막 시세 조회 (인메모리 캐시 → REST API 폴백)
+     */
+    private BigDecimal resolveLastPrice(Instrument instrument) {
+        // 1. 인메모리 캐시에서 먼저 시도
+        String topic;
+        if ("FOREIGN".equalsIgnoreCase(instrument.getMarketType())) {
+            topic = "/topic/foreign/transaction/" + instrument.getStockCode();
+        } else {
+            topic = "/topic/stock/trade/" + instrument.getStockCode();
+        }
+        String lastJson = lsBrokerService.getLastValue(topic);
+        if (lastJson != null) {
+            try {
+                var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(lastJson);
+                if (node.has("price")) {
+                    return new BigDecimal(node.get("price").asText().replace(",", "").trim());
+                }
+            } catch (Exception e) {
+                log.warn("[ORDER] lastValue 가격 파싱 실패 — topic={}, error={}", topic, e.getMessage());
+            }
+        }
+
+        // 2. 캐시 미스 → REST API 폴백
+        return fetchCurrentPrice(instrument);
+    }
+
+    /**
+     * LS REST API로 현재가 조회
+     */
+    private BigDecimal fetchCurrentPrice(Instrument instrument) {
+        try {
+            if ("FOREIGN".equalsIgnoreCase(instrument.getMarketType())) {
+                String exchcd = resolveExchangeCode(instrument.getExchangeCode());
+                var response = foreignStockMarketService.getCurrentPrice(instrument.getStockCode(), exchcd);
+                return BigDecimal.valueOf(response.price());
+            } else {
+                var response = marketService.getCurrentPrice(instrument.getStockCode());
+                return BigDecimal.valueOf(response.currentPrice());
+            }
+        } catch (Exception e) {
+            log.warn("[ORDER] REST 현재가 조회 실패 — instrument={}, error={}",
+                    instrument.getStockCode(), e.getMessage());
+            return null;
+        }
+    }
+
+    private String resolveExchangeCode(String exchangeCode) {
+        if (exchangeCode == null) return "82";
+        return switch (exchangeCode.trim().toUpperCase()) {
+            case "NAS", "NASDAQ", "82" -> "82";
+            case "NYS", "NYSE", "AMS", "AMEX", "81" -> "81";
+            default -> {
+                log.warn("[ORDER] 알 수 없는 거래소 코드 — exchangeCode={}", exchangeCode);
+                yield "82";
+            }
+        };
     }
 
     private void validateOwnership(Long userId, Order order) {

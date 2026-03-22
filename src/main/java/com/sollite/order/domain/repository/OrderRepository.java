@@ -27,4 +27,21 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT o FROM Order o WHERE o.orderId = :orderId")
     Optional<Order> findByIdForUpdate(@Param("orderId") Long orderId);
+
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.instrument.instrumentId = :instrumentId
+              AND o.orderStatus = com.sollite.order.domain.enums.OrderStatus.PENDING
+              AND o.orderKind = com.sollite.order.domain.enums.OrderKind.LIMIT
+            ORDER BY o.requestedAt ASC
+            """)
+    List<Order> findPendingLimitOrders(@Param("instrumentId") Long instrumentId);
+
+    @Query("""
+            SELECT o FROM Order o
+            JOIN FETCH o.instrument
+            WHERE o.orderStatus = com.sollite.order.domain.enums.OrderStatus.PENDING
+              AND o.orderKind = com.sollite.order.domain.enums.OrderKind.LIMIT
+            """)
+    List<Order> findAllPendingLimitOrders();
 }
