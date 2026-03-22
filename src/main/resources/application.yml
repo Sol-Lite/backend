@@ -35,8 +35,8 @@ spring:
     mongodb:
       uri: mongodb+srv://ADMIN:${MONGO_PASSWORD}@sqllitecluster.fdieckp.mongodb.net/sollite?retryWrites=true&w=majority
     redis:
-      host: redis-14247.c340.ap-northeast-2-1.ec2.cloud.redislabs.com
-      port: 14247
+      host: redis-15024.c340.ap-northeast-2-1.ec2.cloud.redislabs.com
+      port: 15024
       password: ${REDIS_PASSWORD}
       ssl:
         enabled: true
@@ -87,9 +87,16 @@ app:
 
 # ── Logging ──
 logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} : %msg%n"
   level:
-    com.sollite: DEBUG
-    org.hibernate.SQL: DEBUG
+    root: INFO
+    com.sollite: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    reactor.netty: WARN
 
 
 # ── LS Securities API  & Websocket ──
@@ -98,5 +105,21 @@ ls:
     url: "https://openapi.ls-sec.co.kr:8080"
     appkey: ${LS_APPKEY}
     appsecret: ${LS_APPSECRET}
+    mac-address: ${LS_MAC_ADDRESS:}
   ws:
     url: wss://openapi.ls-sec.co.kr:29443/websocket
+---
+spring:
+  config:
+    activate:
+      on-profile: foreign-debug
+
+logging:
+  level:
+    com.sollite.foreignmarket: DEBUG
+    com.sollite.websocket: DEBUG
+    com.sollite.global.service.LsTokenService: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: DEBUG
+    reactor.netty: INFO
+    reactor.netty.http.client: WARN

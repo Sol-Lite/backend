@@ -33,35 +33,35 @@ public record LsGshRes(
     ) {
         public List<QuoteEntry> toAsks() {
             return List.of(
-                    new QuoteEntry(parse(offerho1()), parse(offerrem1()), parse(offerno1())),
-                    new QuoteEntry(parse(offerho2()), parse(offerrem2()), parse(offerno2())),
-                    new QuoteEntry(parse(offerho3()), parse(offerrem3()), parse(offerno3())),
-                    new QuoteEntry(parse(offerho4()), parse(offerrem4()), parse(offerno4())),
-                    new QuoteEntry(parse(offerho5()), parse(offerrem5()), parse(offerno5())),
-                    new QuoteEntry(parse(offerho6()), parse(offerrem6()), parse(offerno6())),
-                    new QuoteEntry(parse(offerho7()), parse(offerrem7()), parse(offerno7())),
-                    new QuoteEntry(parse(offerho8()), parse(offerrem8()), parse(offerno8())),
-                    new QuoteEntry(parse(offerho9()), parse(offerrem9()), parse(offerno9())),
-                    new QuoteEntry(parse(offerho10()), parse(offerrem10()), parse(offerno10()))
+                    new QuoteEntry(parseDouble(offerho1()), parseLong(offerrem1()), parseLong(offerno1())),
+                    new QuoteEntry(parseDouble(offerho2()), parseLong(offerrem2()), parseLong(offerno2())),
+                    new QuoteEntry(parseDouble(offerho3()), parseLong(offerrem3()), parseLong(offerno3())),
+                    new QuoteEntry(parseDouble(offerho4()), parseLong(offerrem4()), parseLong(offerno4())),
+                    new QuoteEntry(parseDouble(offerho5()), parseLong(offerrem5()), parseLong(offerno5())),
+                    new QuoteEntry(parseDouble(offerho6()), parseLong(offerrem6()), parseLong(offerno6())),
+                    new QuoteEntry(parseDouble(offerho7()), parseLong(offerrem7()), parseLong(offerno7())),
+                    new QuoteEntry(parseDouble(offerho8()), parseLong(offerrem8()), parseLong(offerno8())),
+                    new QuoteEntry(parseDouble(offerho9()), parseLong(offerrem9()), parseLong(offerno9())),
+                    new QuoteEntry(parseDouble(offerho10()), parseLong(offerrem10()), parseLong(offerno10()))
             );
         }
 
         public List<QuoteEntry> toBids() {
             return List.of(
-                    new QuoteEntry(parse(bidho1()), parse(bidrem1()), parse(bidno1())),
-                    new QuoteEntry(parse(bidho2()), parse(bidrem2()), parse(bidno2())),
-                    new QuoteEntry(parse(bidho3()), parse(bidrem3()), parse(bidno3())),
-                    new QuoteEntry(parse(bidho4()), parse(bidrem4()), parse(bidno4())),
-                    new QuoteEntry(parse(bidho5()), parse(bidrem5()), parse(bidno5())),
-                    new QuoteEntry(parse(bidho6()), parse(bidrem6()), parse(bidno6())),
-                    new QuoteEntry(parse(bidho7()), parse(bidrem7()), parse(bidno7())),
-                    new QuoteEntry(parse(bidho8()), parse(bidrem8()), parse(bidno8())),
-                    new QuoteEntry(parse(bidho9()), parse(bidrem9()), parse(bidno9())),
-                    new QuoteEntry(parse(bidho10()), parse(bidrem10()), parse(bidno10()))
+                    new QuoteEntry(parseDouble(bidho1()), parseLong(bidrem1()), parseLong(bidno1())),
+                    new QuoteEntry(parseDouble(bidho2()), parseLong(bidrem2()), parseLong(bidno2())),
+                    new QuoteEntry(parseDouble(bidho3()), parseLong(bidrem3()), parseLong(bidno3())),
+                    new QuoteEntry(parseDouble(bidho4()), parseLong(bidrem4()), parseLong(bidno4())),
+                    new QuoteEntry(parseDouble(bidho5()), parseLong(bidrem5()), parseLong(bidno5())),
+                    new QuoteEntry(parseDouble(bidho6()), parseLong(bidrem6()), parseLong(bidno6())),
+                    new QuoteEntry(parseDouble(bidho7()), parseLong(bidrem7()), parseLong(bidno7())),
+                    new QuoteEntry(parseDouble(bidho8()), parseLong(bidrem8()), parseLong(bidno8())),
+                    new QuoteEntry(parseDouble(bidho9()), parseLong(bidrem9()), parseLong(bidno9())),
+                    new QuoteEntry(parseDouble(bidho10()), parseLong(bidrem10()), parseLong(bidno10()))
             );
         }
 
-        private long parse(String value) {
+        private long parseLong(String value) {
             if (value == null || value.isBlank()) return 0L;
             try { return Long.parseLong(value.trim()); } catch (NumberFormatException e) { return 0L; }
         }

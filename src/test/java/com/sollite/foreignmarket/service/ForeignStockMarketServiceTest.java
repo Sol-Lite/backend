@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -22,6 +23,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -127,6 +129,23 @@ class ForeignStockMarketServiceTest {
 
             assertThat(response.symbol()).isEqualTo("TSLA");
             verify(tokenService).invalidateToken();
+        }
+
+        @Test
+        @DisplayName("현재가 조회 요청 시 거래소코드 정규화와 연속키 헤더를 설정한다")
+        void getCurrentPrice_normalizesExchangeCodeAndSetsContinuationHeader() throws Exception {
+            setupWebClientChain();
+            given(tokenService.getAccessToken()).willReturn("valid-token");
+            given(responseSpec.bodyToMono(String.class)).willReturn(Mono.just("{}"));
+            given(objectMapper.readValue("{}", LsG3101Res.class)).willReturn(createSuccessResponse());
+
+            foreignStockMarketService.getCurrentPrice("nvda", "NAS");
+
+            verify(requestBodySpec).header("tr_cont_key", "");
+            verify(requestBodySpec).header("mac_address", "00:00:00:00:00:00");
+            verify(requestBodySpec).bodyValue(new LsG3101Req(
+                    new LsG3101Req.G3101InBlock("R", "82NVDA", "82", "NVDA")
+            ));
         }
     }
 
@@ -274,6 +293,27 @@ class ForeignStockMarketServiceTest {
             assertThat(response.nmin()).isEqualTo(5);
             assertThat(response.dataPoints()).isNotEmpty();
         }
+
+        @Test
+        @DisplayName("N분 차트 조회 요청 시 압축조회와 빈 연속필드를 사용한다")
+        void getMinuteChart_usesCompressedRequestWithBlankContinuationFields() throws Exception {
+            setupWebClientChain();
+            given(tokenService.getAccessToken()).willReturn("valid-token");
+            given(responseSpec.bodyToMono(String.class)).willReturn(Mono.just("{}"));
+            given(objectMapper.readValue("{}", LsG3203Res.class)).willReturn(createSuccessResponse());
+
+            foreignStockMarketService.getMinuteChart("NVDA", "82", 5);
+
+            ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
+            verify(requestBodySpec).bodyValue(bodyCaptor.capture());
+
+            LsG3203Req request = (LsG3203Req) bodyCaptor.getValue();
+            assertThat(request.g3203InBlock().keysymbol()).isEqualTo("82NVDA");
+            assertThat(request.g3203InBlock().compYn()).isEqualTo("Y");
+            assertThat(request.g3203InBlock().qrycnt()).isEqualTo(500);
+            assertThat(request.g3203InBlock().ctsDate()).isEmpty();
+            assertThat(request.g3203InBlock().ctsTime()).isEmpty();
+        }
     }
 
     @Nested
@@ -315,6 +355,27 @@ class ForeignStockMarketServiceTest {
             assertThat(response.symbol()).isEqualTo("TSLA");
             assertThat(response.period()).isEqualTo(ForeignChartPeriod.DAY);
             assertThat(response.dataPoints()).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("기간 지정 차트 조회 첫 요청은 연속필드를 비워서 보낸다")
+        void getAdvancedChart_usesBlankContinuationFieldsOnFirstRequest() throws Exception {
+            setupWebClientChain();
+            given(tokenService.getAccessToken()).willReturn("valid-token");
+            given(responseSpec.bodyToMono(String.class)).willReturn(Mono.just("{}"));
+            given(objectMapper.readValue("{}", LsG3204Res.class)).willReturn(createSuccessResponse());
+
+            foreignStockMarketService.getAdvancedChart(
+                    "NVDA", "82", ForeignChartPeriod.DAY,
+                    LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 20)
+            );
+
+            ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
+            verify(requestBodySpec).bodyValue(bodyCaptor.capture());
+
+            LsG3204Req request = (LsG3204Req) bodyCaptor.getValue();
+            assertThat(request.g3204InBlock().ctsDate()).isEmpty();
+            assertThat(request.g3204InBlock().ctsInfo()).isEmpty();
         }
     }
 }

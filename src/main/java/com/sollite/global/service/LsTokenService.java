@@ -38,6 +38,7 @@ public class LsTokenService {
         tokenExpiresAt = null;
     }
 
+
     private void issueNewToken() {
         log.info("토큰 발급 요청");
 

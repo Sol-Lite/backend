@@ -7,7 +7,10 @@ import com.sollite.foreignmarket.exception.ForeignStockErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
@@ -16,19 +19,27 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
+    private static final String DUMMY_MAC = "000000000000";
     private final WebClient lsWebClient;
     private final LsTokenService tokenService;
     private final ObjectMapper objectMapper;
-    private static final String DUMMY_MAC = "00:00:00:00:00:00";
+    @Value("${ls.api.mac-address:}")
+    private String configuredMacAddress;
+    private static final String INITIAL_TR_CONT_KEY = "";
+    private static final String DEFAULT_DELAY_GB = "R";
+    private static final String COMPRESSED_YES = "Y";
+    private static final int DEFAULT_CHART_QRYCNT = 500;
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HHmmss");
 
     @Override
+    @Cacheable(cacheNames = "foreign:price", key = "#stockCode + ':' + #exchcd")
     public ForeignCurrentPriceResponse getCurrentPrice(String stockCode, String exchcd) {
         return getCurrentPrice(stockCode, exchcd, false);
     }
@@ -36,29 +47,32 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private ForeignCurrentPriceResponse getCurrentPrice(String stockCode, String exchcd, boolean isRetry) {
         String token = tokenService.getAccessToken();
         try {
-            // keysymbol 구성: exchcd + stockCode (예: 82TSLA)
-            String keysymbol = exchcd + stockCode;
+            String normalizedStockCode = normalizeStockCode(stockCode);
+            String normalizedExchcd = normalizeExchangeCode(exchcd);
+            String keysymbol = buildKeysymbol(normalizedStockCode, normalizedExchcd);
+            LsG3101Req requestBody = new LsG3101Req(
+                    new LsG3101Req.G3101InBlock(DEFAULT_DELAY_GB, keysymbol, normalizedExchcd, normalizedStockCode)
+            );
 
-            String raw = lsWebClient.post()
-                    .uri("/overseas/current-price")
-                    .header("authorization", "Bearer " + token)
-                    .header("content-type", "application/json; charset=utf-8")
-                    .header("tr_cd", "g3101")
-                    .header("tr_cont", "N")
-                    .header("mac_address", DUMMY_MAC)
-                    .bodyValue(new LsG3101Req(
-                            new LsG3101Req.G3101InBlock("R", keysymbol, exchcd, stockCode)
-                    ))
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-
-            log.debug("LS g3101 raw: {}", raw);
+            String raw = executeLsRequest(
+                    "/overseas-stock/market-data",
+                    "g3101",
+                    token,
+                    stockCode,
+                    exchcd,
+                    normalizedExchcd,
+                    normalizedStockCode,
+                    keysymbol,
+                    requestBody
+            );
             LsG3101Res lsRes = objectMapper.readValue(raw, LsG3101Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
-                log.warn("LS API 해외주식 현재가 조회 실패: stockCode={}, msg={}", stockCode,
-                        lsRes != null ? lsRes.rspMsg() : "NULL");
+                log.warn("LS API 해외주식 현재가 조회 실패: trCd=g3101, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
+                        stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
+                        lsRes != null ? lsRes.rspCd() : "NULL",
+                        lsRes != null ? lsRes.rspMsg() : "NULL",
+                        raw);
                 throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
             }
 
@@ -123,6 +137,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:orderbook", key = "#stockCode + ':' + #exchcd")
     public ForeignOrderbookResponse getOrderbook(String stockCode, String exchcd) {
         return getOrderbook(stockCode, exchcd, false);
     }
@@ -130,28 +145,32 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private ForeignOrderbookResponse getOrderbook(String stockCode, String exchcd, boolean isRetry) {
         String token = tokenService.getAccessToken();
         try {
-            String keysymbol = exchcd + stockCode;
+            String normalizedStockCode = normalizeStockCode(stockCode);
+            String normalizedExchcd = normalizeExchangeCode(exchcd);
+            String keysymbol = buildKeysymbol(normalizedStockCode, normalizedExchcd);
+            LsG3106Req requestBody = new LsG3106Req(
+                    new LsG3106Req.G3106InBlock(DEFAULT_DELAY_GB, keysymbol, normalizedExchcd, normalizedStockCode)
+            );
 
-            String raw = lsWebClient.post()
-                    .uri("/overseas/orderbook")
-                    .header("authorization", "Bearer " + token)
-                    .header("content-type", "application/json; charset=utf-8")
-                    .header("tr_cd", "g3106")
-                    .header("tr_cont", "N")
-                    .header("mac_address", DUMMY_MAC)
-                    .bodyValue(new LsG3106Req(
-                            new LsG3106Req.G3106InBlock("R", keysymbol, exchcd, stockCode)
-                    ))
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-
-            log.debug("LS g3106 raw: {}", raw);
+            String raw = executeLsRequest(
+                    "/overseas-stock/market-data",
+                    "g3106",
+                    token,
+                    stockCode,
+                    exchcd,
+                    normalizedExchcd,
+                    normalizedStockCode,
+                    keysymbol,
+                    requestBody
+            );
             LsG3106Res lsRes = objectMapper.readValue(raw, LsG3106Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
-                log.warn("LS API 해외주식 호가 조회 실패: stockCode={}, msg={}", stockCode,
-                        lsRes != null ? lsRes.rspMsg() : "NULL");
+                log.warn("LS API 해외주식 호가 조회 실패: trCd=g3106, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
+                        stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
+                        lsRes != null ? lsRes.rspCd() : "NULL",
+                        lsRes != null ? lsRes.rspMsg() : "NULL",
+                        raw);
                 throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
             }
 
@@ -211,6 +230,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:info", key = "#stockCode + ':' + #exchcd")
     public ForeignStockInfoResponse getInfo(String stockCode, String exchcd) {
         return getInfo(stockCode, exchcd, false);
     }
@@ -218,28 +238,32 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private ForeignStockInfoResponse getInfo(String stockCode, String exchcd, boolean isRetry) {
         String token = tokenService.getAccessToken();
         try {
-            String keysymbol = exchcd + stockCode;
+            String normalizedStockCode = normalizeStockCode(stockCode);
+            String normalizedExchcd = normalizeExchangeCode(exchcd);
+            String keysymbol = buildKeysymbol(normalizedStockCode, normalizedExchcd);
+            LsG3104Req requestBody = new LsG3104Req(
+                    new LsG3104Req.G3104InBlock(DEFAULT_DELAY_GB, keysymbol, normalizedExchcd, normalizedStockCode)
+            );
 
-            String raw = lsWebClient.post()
-                    .uri("/overseas/stock-info")
-                    .header("authorization", "Bearer " + token)
-                    .header("content-type", "application/json; charset=utf-8")
-                    .header("tr_cd", "g3104")
-                    .header("tr_cont", "N")
-                    .header("mac_address", DUMMY_MAC)
-                    .bodyValue(new LsG3104Req(
-                            new LsG3104Req.G3104InBlock("R", keysymbol, exchcd, stockCode)
-                    ))
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-
-            log.debug("LS g3104 raw: {}", raw);
+            String raw = executeLsRequest(
+                    "/overseas-stock/market-data",
+                    "g3104",
+                    token,
+                    stockCode,
+                    exchcd,
+                    normalizedExchcd,
+                    normalizedStockCode,
+                    keysymbol,
+                    requestBody
+            );
             LsG3104Res lsRes = objectMapper.readValue(raw, LsG3104Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
-                log.warn("LS API 해외주식 종목정보 조회 실패: stockCode={}, msg={}", stockCode,
-                        lsRes != null ? lsRes.rspMsg() : "NULL");
+                log.warn("LS API 해외주식 종목정보 조회 실패: trCd=g3104, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
+                        stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
+                        lsRes != null ? lsRes.rspCd() : "NULL",
+                        lsRes != null ? lsRes.rspMsg() : "NULL",
+                        raw);
                 throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
             }
 
@@ -293,6 +317,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:chart", key = "#stockCode + ':' + #exchcd + ':' + #period + ':' + #date")
     public ForeignChartResponse getChart(String stockCode, String exchcd, ForeignChartPeriod period, LocalDate date) {
         return getChart(stockCode, exchcd, period, date, false);
     }
@@ -300,36 +325,40 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private ForeignChartResponse getChart(String stockCode, String exchcd, ForeignChartPeriod period, LocalDate date, boolean isRetry) {
         String token = tokenService.getAccessToken();
         try {
-            String keysymbol = exchcd + stockCode;
+            String normalizedStockCode = normalizeStockCode(stockCode);
+            String normalizedExchcd = normalizeExchangeCode(exchcd);
+            String keysymbol = buildKeysymbol(normalizedStockCode, normalizedExchcd);
             DateTimeFormatter fmt = DATE_FMT;
+            LsG3103Req requestBody = new LsG3103Req(
+                    new LsG3103Req.G3103InBlock(
+                            DEFAULT_DELAY_GB,
+                            keysymbol,
+                            normalizedExchcd,
+                            normalizedStockCode,
+                            period.getGubun(),
+                            date.format(fmt)
+                    )
+            );
 
-            String raw = lsWebClient.post()
-                    .uri("/overseas/chart-daily")
-                    .header("authorization", "Bearer " + token)
-                    .header("content-type", "application/json; charset=utf-8")
-                    .header("tr_cd", "g3103")
-                    .header("tr_cont", "N")
-                    .header("mac_address", DUMMY_MAC)
-                    .bodyValue(new LsG3103Req(
-                            new LsG3103Req.G3103InBlock(
-                                    "R",
-                                    keysymbol,
-                                    exchcd,
-                                    stockCode,
-                                    period.getGubun(),
-                                    date.format(fmt)
-                            )
-                    ))
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-
-            log.debug("LS g3103 raw: {}", raw);
+            String raw = executeLsRequest(
+                    "/overseas-stock/chart",
+                    "g3103",
+                    token,
+                    stockCode,
+                    exchcd,
+                    normalizedExchcd,
+                    normalizedStockCode,
+                    keysymbol,
+                    requestBody
+            );
             LsG3103Res lsRes = objectMapper.readValue(raw, LsG3103Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
-                log.warn("LS API 해외주식 차트 조회 실패: stockCode={}, msg={}", stockCode,
-                        lsRes != null ? lsRes.rspMsg() : "NULL");
+                log.warn("LS API 해외주식 차트 조회 실패: trCd=g3103, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
+                        stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
+                        lsRes != null ? lsRes.rspCd() : "NULL",
+                        lsRes != null ? lsRes.rspMsg() : "NULL",
+                        raw);
                 throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
             }
 
@@ -365,6 +394,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:tick-chart", key = "#stockCode + ':' + #exchcd + ':' + #ncnt")
     public ForeignTickChartResponse getTickChart(String stockCode, String exchcd, int ncnt) {
         return getTickChart(stockCode, exchcd, ncnt, false);
     }
@@ -372,41 +402,45 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private ForeignTickChartResponse getTickChart(String stockCode, String exchcd, int ncnt, boolean isRetry) {
         String token = tokenService.getAccessToken();
         try {
-            String keysymbol = exchcd + stockCode;
+            String normalizedStockCode = normalizeStockCode(stockCode);
+            String normalizedExchcd = normalizeExchangeCode(exchcd);
+            String keysymbol = buildKeysymbol(normalizedStockCode, normalizedExchcd);
             LocalDate today = LocalDate.now();
             DateTimeFormatter fmt = DATE_FMT;
+            LsG3202Req requestBody = new LsG3202Req(
+                    new LsG3202Req.G3202InBlock(
+                            DEFAULT_DELAY_GB,
+                            keysymbol,
+                            normalizedExchcd,
+                            normalizedStockCode,
+                            ncnt,
+                            DEFAULT_CHART_QRYCNT,
+                            COMPRESSED_YES,
+                            today.minusDays(7).format(fmt),
+                            "",
+                            ""
+                    )
+            );
 
-            String raw = lsWebClient.post()
-                    .uri("/overseas/chart-tick")
-                    .header("authorization", "Bearer " + token)
-                    .header("content-type", "application/json; charset=utf-8")
-                    .header("tr_cd", "g3202")
-                    .header("tr_cont", "N")
-                    .header("mac_address", DUMMY_MAC)
-                    .bodyValue(new LsG3202Req(
-                            new LsG3202Req.G3202InBlock(
-                                    "R",
-                                    keysymbol,
-                                    exchcd,
-                                    stockCode,
-                                    ncnt,
-                                    500,
-                                    "N",
-                                    today.format(fmt),
-                                    today.format(fmt),
-                                    "0"
-                            )
-                    ))
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-
-            log.debug("LS g3202 raw: {}", raw);
+            String raw = executeLsRequest(
+                    "/overseas-stock/chart",
+                    "g3202",
+                    token,
+                    stockCode,
+                    exchcd,
+                    normalizedExchcd,
+                    normalizedStockCode,
+                    keysymbol,
+                    requestBody
+            );
             LsG3202Res lsRes = objectMapper.readValue(raw, LsG3202Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
-                log.warn("LS API 해외주식 틱차트 조회 실패: stockCode={}, msg={}", stockCode,
-                        lsRes != null ? lsRes.rspMsg() : "NULL");
+                log.warn("LS API 해외주식 틱차트 조회 실패: trCd=g3202, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
+                        stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
+                        lsRes != null ? lsRes.rspCd() : "NULL",
+                        lsRes != null ? lsRes.rspMsg() : "NULL",
+                        raw);
                 throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
             }
 
@@ -448,6 +482,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:minute-chart", key = "#stockCode + ':' + #exchcd + ':' + #nmin")
     public ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin) {
         return getMinuteChart(stockCode, exchcd, nmin, false);
     }
@@ -455,42 +490,46 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin, boolean isRetry) {
         String token = tokenService.getAccessToken();
         try {
-            String keysymbol = exchcd + stockCode;
+            String normalizedStockCode = normalizeStockCode(stockCode);
+            String normalizedExchcd = normalizeExchangeCode(exchcd);
+            String keysymbol = buildKeysymbol(normalizedStockCode, normalizedExchcd);
             LocalDate today = LocalDate.now();
             DateTimeFormatter fmt = DATE_FMT;
+            LsG3203Req requestBody = new LsG3203Req(
+                    new LsG3203Req.G3203InBlock(
+                            DEFAULT_DELAY_GB,
+                            keysymbol,
+                            normalizedExchcd,
+                            normalizedStockCode,
+                            nmin,
+                            DEFAULT_CHART_QRYCNT,
+                            COMPRESSED_YES,
+                            today.minusDays(7).format(fmt),
+                            "",
+                            "",
+                            ""
+                    )
+            );
 
-            String raw = lsWebClient.post()
-                    .uri("/overseas/chart-minute")
-                    .header("authorization", "Bearer " + token)
-                    .header("content-type", "application/json; charset=utf-8")
-                    .header("tr_cd", "g3203")
-                    .header("tr_cont", "N")
-                    .header("mac_address", DUMMY_MAC)
-                    .bodyValue(new LsG3203Req(
-                            new LsG3203Req.G3203InBlock(
-                                    "R",
-                                    keysymbol,
-                                    exchcd,
-                                    stockCode,
-                                    nmin,
-                                    500,
-                                    "N",
-                                    today.format(fmt),
-                                    today.format(fmt),
-                                    today.format(fmt),
-                                    "000000"
-                            )
-                    ))
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-
-            log.debug("LS g3203 raw: {}", raw);
+            String raw = executeLsRequest(
+                    "/overseas-stock/chart",
+                    "g3203",
+                    token,
+                    stockCode,
+                    exchcd,
+                    normalizedExchcd,
+                    normalizedStockCode,
+                    keysymbol,
+                    requestBody
+            );
             LsG3203Res lsRes = objectMapper.readValue(raw, LsG3203Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
-                log.warn("LS API 해외주식 분차트 조회 실패: stockCode={}, msg={}", stockCode,
-                        lsRes != null ? lsRes.rspMsg() : "NULL");
+                log.warn("LS API 해외주식 분차트 조회 실패: trCd=g3203, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
+                        stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
+                        lsRes != null ? lsRes.rspCd() : "NULL",
+                        lsRes != null ? lsRes.rspMsg() : "NULL",
+                        raw);
                 throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
             }
 
@@ -533,6 +572,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "foreign:advanced-chart", key = "#stockCode + ':' + #exchcd + ':' + #period + ':' + #startDate + ':' + #endDate")
     public ForeignChartResponse getAdvancedChart(String stockCode, String exchcd, ForeignChartPeriod period, LocalDate startDate, LocalDate endDate) {
         return getAdvancedChart(stockCode, exchcd, period, startDate, endDate, false);
     }
@@ -540,42 +580,48 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private ForeignChartResponse getAdvancedChart(String stockCode, String exchcd, ForeignChartPeriod period, LocalDate startDate, LocalDate endDate, boolean isRetry) {
         String token = tokenService.getAccessToken();
         try {
-            String keysymbol = exchcd + stockCode;
+            String normalizedStockCode = normalizeStockCode(stockCode);
+            String normalizedExchcd = normalizeExchangeCode(exchcd);
+            String keysymbol = buildKeysymbol(normalizedStockCode, normalizedExchcd);
             DateTimeFormatter fmt = DATE_FMT;
+            // edate: LS API는 빈 값("")을 "최신까지"로 처리. 오늘 날짜를 직접 지정하면 "해당 자료가 없습니다." 반환
+            String edateParam = endDate.isBefore(LocalDate.now()) ? endDate.format(fmt) : "";
+            LsG3204Req requestBody = new LsG3204Req(
+                    new LsG3204Req.G3204InBlock(
+                            "Y",
+                            DEFAULT_DELAY_GB,
+                            keysymbol,
+                            normalizedExchcd,
+                            normalizedStockCode,
+                            period.getGubun(),
+                            DEFAULT_CHART_QRYCNT,
+                            "N",
+                            startDate.format(fmt),
+                            edateParam,
+                            "",
+                            ""
+                    )
+            );
 
-            String raw = lsWebClient.post()
-                    .uri("/overseas/chart-advanced")
-                    .header("authorization", "Bearer " + token)
-                    .header("content-type", "application/json; charset=utf-8")
-                    .header("tr_cd", "g3204")
-                    .header("tr_cont", "N")
-                    .header("mac_address", DUMMY_MAC)
-                    .bodyValue(new LsG3204Req(
-                            new LsG3204Req.G3204InBlock(
-                                    "Y",
-                                    "R",
-                                    keysymbol,
-                                    exchcd,
-                                    stockCode,
-                                    period.getGubun(),
-                                    500,
-                                    "N",
-                                    startDate.format(fmt),
-                                    endDate.format(fmt),
-                                    startDate.format(fmt),
-                                    "0"
-                            )
-                    ))
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-
-            log.debug("LS g3204 raw: {}", raw);
+            String raw = executeLsRequest(
+                    "/overseas-stock/chart",
+                    "g3204",
+                    token,
+                    stockCode,
+                    exchcd,
+                    normalizedExchcd,
+                    normalizedStockCode,
+                    keysymbol,
+                    requestBody
+            );
             LsG3204Res lsRes = objectMapper.readValue(raw, LsG3204Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
-                log.warn("LS API 해외주식 고급차트 조회 실패: stockCode={}, msg={}", stockCode,
-                        lsRes != null ? lsRes.rspMsg() : "NULL");
+                log.warn("LS API 해외주식 고급차트 조회 실패: trCd=g3204, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
+                        stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
+                        lsRes != null ? lsRes.rspCd() : "NULL",
+                        lsRes != null ? lsRes.rspMsg() : "NULL",
+                        raw);
                 throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
             }
 
@@ -608,5 +654,122 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             log.error("해외주식 고급차트 조회 중 예외 발생: stockCode={}", stockCode, e);
             throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
         }
+    }
+
+    private String normalizeStockCode(String stockCode) {
+        return stockCode == null ? "" : stockCode.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeExchangeCode(String exchcd) {
+        if (exchcd == null) {
+            return "";
+        }
+
+        return switch (exchcd.trim().toUpperCase(Locale.ROOT)) {
+            case "NAS", "NASDAQ", "82" -> "82";
+            case "NYS", "NYSE", "AMS", "AMEX", "81" -> "81";
+            default -> exchcd.trim();
+        };
+    }
+
+    private String buildKeysymbol(String stockCode, String exchcd) {
+        return exchcd + stockCode;
+    }
+
+    private String executeLsRequest(
+            String uri,
+            String trCd,
+            String token,
+            String stockCode,
+            String originalExchcd,
+            String normalizedExchcd,
+            String normalizedStockCode,
+            String keysymbol,
+            Object requestBody
+    ) {
+        String requestJson = toJson(requestBody);
+        log.info("[REST-REQ] trCd={}, stockCode={}, exchcd={}, keysymbol={}, macAddress={}, body={}",
+                trCd, stockCode, normalizedExchcd, keysymbol,
+                hasMacAddress() ? "설정됨" : "미설정(헤더생략)",
+                requestJson);
+
+        WebClient.RequestBodySpec requestSpec = lsWebClient.post()
+                .uri(uri)
+                .header("authorization", "Bearer " + token)
+                .header("content-type", "application/json; charset=utf-8")
+                .header("tr_cd", trCd)
+                .header("tr_cont", "N")
+                .header("tr_cont_key", INITIAL_TR_CONT_KEY);
+
+        if (hasMacAddress()) {
+            requestSpec = requestSpec.header("mac_address", normalizedMacAddress());
+        }
+
+        return requestSpec.bodyValue(requestBody)
+                .exchangeToMono(response -> response.bodyToMono(String.class)
+                        .defaultIfEmpty("")
+                        .map(raw -> {
+                            int status = response.statusCode().value();
+                            if (status == 200) {
+                                log.info("[REST-RES] trCd={}, stockCode={}, status={}, rspCd={}, raw={}",
+                                        trCd, stockCode, status,
+                                        extractRspCd(raw),
+                                        raw.length() > 300 ? raw.substring(0, 300) + "..." : raw);
+                            } else {
+                                log.warn("[REST-RES] trCd={}, stockCode={}, status={} (비정상), raw={}",
+                                        trCd, stockCode, status, raw);
+                            }
+                            return raw;
+                        }))
+                .block();
+    }
+
+    private String extractRspCd(String raw) {
+        try {
+            int idx = raw.indexOf("\"rsp_cd\"");
+            if (idx < 0) return "N/A";
+            int start = raw.indexOf('"', idx + 8) + 1;
+            int end = raw.indexOf('"', start);
+            return raw.substring(start, end);
+        } catch (Exception e) {
+            return "N/A";
+        }
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            log.debug("LS 요청 JSON 직렬화 실패: type={}, error={}", value != null ? value.getClass().getSimpleName() : "null", e.getMessage());
+            return String.valueOf(value);
+        }
+    }
+
+    private String firstHeader(org.springframework.http.HttpHeaders headers, String name) {
+        return headers.getFirst(name);
+    }
+
+    private boolean hasMacAddress() {
+        return StringUtils.hasText(configuredMacAddress);
+    }
+
+    private String resolvedMacAddress() {
+        return hasMacAddress() ? normalizedMacAddress() : DUMMY_MAC;
+    }
+
+    private String normalizedMacAddress() {
+        return configuredMacAddress.replaceAll("[:\\-]", "").trim();
+    }
+
+    private String maskedMacAddress() {
+        if (!hasMacAddress()) {
+            return DUMMY_MAC;
+        }
+
+        String mac = normalizedMacAddress();
+        if (mac.length() <= 4) {
+            return mac;
+        }
+        return "*".repeat(mac.length() - 4) + mac.substring(mac.length() - 4);
     }
 }

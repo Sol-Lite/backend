@@ -19,6 +19,7 @@ import reactor.core.publisher.Mono;
 
 import java.net.URI;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -140,7 +141,7 @@ public class ForeignStockTransactionWebSocketHandler extends TextWebSocketHandle
 
     private String buildMessage(String token, String trType, String symbol) {
         // 해외주식 심볼을 18자리로 패딩
-        String paddedSymbol = String.format("%-18s", symbol).substring(0, 18);
+        String paddedSymbol = String.format("%-18s", normalizeSymbol(symbol)).substring(0, 18);
         return String.format(
                 "{\"header\":{\"token\":\"%s\",\"tr_type\":\"%s\"},\"body\":{\"tr_cd\":\"%s\",\"tr_key\":\"%s\"}}",
                 token, trType, TR_CD, paddedSymbol
@@ -149,6 +150,10 @@ public class ForeignStockTransactionWebSocketHandler extends TextWebSocketHandle
 
     private String extractSymbol(WebSocketSession session) {
         String path = session.getUri().getPath();
-        return path.substring(path.lastIndexOf('/') + 1);
+        return normalizeSymbol(path.substring(path.lastIndexOf('/') + 1));
+    }
+
+    private String normalizeSymbol(String symbol) {
+        return symbol == null ? "" : symbol.trim().toUpperCase(Locale.ROOT);
     }
 }

@@ -5,10 +5,13 @@ import com.sollite.market.dto.*;
 import com.sollite.global.service.LsTokenService;
 import com.sollite.market.exception.MarketErrorCode;
 
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.hibernate.query.Order;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -28,6 +31,7 @@ class LsMarketServiceImpl implements MarketService {
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
 
     @Override
+    @Cacheable(cacheNames = "market:price", key = "#stockCode")
     public CurrentPriceResponse getCurrentPrice(String stockCode) {
         return getCurrentPrice(stockCode, false);
     }
@@ -81,6 +85,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:daily", key = "#stockCode + ':' + #date")
     public DailyPriceResponse getDailyPrice(String stockCode, LocalDate date) {
         return getDailyPrice(stockCode, date, false);
     }
@@ -146,6 +151,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:chart", key = "#stockCode + ':' + #period + ':' + #startDate + ':' + #endDate")
     public ChartResponse getChart(String stockCode, ChartPeriod period, LocalDate startDate, LocalDate endDate) {
         return getChart(stockCode, period, startDate, endDate, false);
     }
@@ -222,6 +228,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:minute-chart", key = "#stockCode + ':' + #ncnt")
     public MinuteChartResponse getMinuteChart(String stockCode, int ncnt) {
         return getMinuteChart(stockCode, ncnt, false);
     }
@@ -294,6 +301,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:finance", key = "#stockCode")
     public FinanceResponse getFinance(String stockCode) {
         return getFinance(stockCode, false);
     }
@@ -360,6 +368,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:opinion", key = "#stockCode")
     public OpinionResponse getOpinion(String stockCode) {
         return getOpinion(stockCode, false);
     }
@@ -420,6 +429,7 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:investor", key = "#stockCode")
     public InvestorResponse getInvestor(String stockCode) {
         return getInvestor(stockCode, false);
     }
@@ -483,30 +493,205 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:orderbook", key = "#stockCode")
     public OrderbookResponse getOrderbook(String stockCode) {
         return getOrderbook(stockCode, false);
+    }
+
+    @Override
+    @Cacheable(cacheNames = "market:ranking", key = "#type + ':' + #market")
+    public List<StockRankingItem> getRanking(String type, String market) {
+        String token = tokenService.getAccessToken();
+        String gubun = switch (market) {
+            case "kospi" -> "1";
+            case "kosdaq" -> "2";
+            default -> "0";
+        };
+
+        try {
+            return switch (type) {
+                case "trading-volume" -> getRankingByVolume(token, gubun);
+                case "rising" -> getRankingByChange(token, gubun, "0");
+                case "falling" -> getRankingByChange(token, gubun, "1");
+                case "market-cap" -> getRankingByMarketCap(token, gubun);
+                default -> getRankingByTradingValue(token, gubun);
+            };
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("순위 조회 중 예외 발생: type={}, market={}", type, market, e);
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+    }
+
+    private List<StockRankingItem> getRankingByTradingValue(String token, String gubun) throws Exception {
+        record InBlock(String gubun, String jnilgubun, int jc_num, int sprice, int eprice, int volume, int idx, int jc_num2, String exchgubun) {}
+        record Req(InBlock t1463InBlock) {}
+
+        String raw = lsWebClient.post()
+                .uri("/stock/high-item")
+                .header("authorization", "Bearer " + token)
+                .header("content-type", "application/json; charset=utf-8")
+                .header("tr_cd", "t1463")
+                .header("tr_cont", "N")
+                .header("mac_address", DUMMY_MAC)
+                .bodyValue(new Req(new InBlock(gubun, "0", 0, 0, 0, 0, 0, 0, "U")))
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        log.debug("LS t1463 raw: {}", raw);
+        LsT1463Res res = objectMapper.readValue(raw, LsT1463Res.class);
+        if (res == null || !"00000".equals(res.rsp_cd())) {
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+
+        List<LsT1463Res.LsT1463Item> items = res.t1463OutBlock1() != null ? res.t1463OutBlock1() : List.of();
+        AtomicInteger rank = new AtomicInteger(1);
+        return items.stream()
+                .map(i -> new StockRankingItem(
+                        rank.getAndIncrement(),
+                        i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
+                        parseDiff(i.diff()), i.volume(), i.value() * 100L, i.total(), null,
+                        i.ex_shcode(), null, null, null, null, null, null, null, i.jnilvalue() * 100L, parseDiff(i.bef_diff())))
+                .toList();
+    }
+
+    private List<StockRankingItem> getRankingByVolume(String token, String gubun) throws Exception {
+        record InBlock(String gubun, String jnilgubun, int sdiff, int ediff, int jc_num, int sprice, int eprice, int volume, int idx) {}
+        record Req(InBlock t1452InBlock) {}
+
+        String raw = lsWebClient.post()
+                .uri("/stock/high-item")
+                .header("authorization", "Bearer " + token)
+                .header("content-type", "application/json; charset=utf-8")
+                .header("tr_cd", "t1452")
+                .header("tr_cont", "N")
+                .header("mac_address", DUMMY_MAC)
+                .bodyValue(new Req(new InBlock(gubun, "1", 0, 0, 0, 0, 0, 0, 0)))
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        log.debug("LS t1452 raw: {}", raw);
+        LsT1452Res res = objectMapper.readValue(raw, LsT1452Res.class);
+        if (res == null || !"00000".equals(res.rsp_cd())) {
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+
+        List<LsT1452Res.LsT1452Item> items = res.t1452OutBlock1() != null ? res.t1452OutBlock1() : List.of();
+        AtomicInteger rank = new AtomicInteger(1);
+        return items.stream()
+                .map(i -> new StockRankingItem(
+                        rank.getAndIncrement(),
+                        i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
+                        parseDiff(i.diff()), i.volume(), null, null, null,
+                        null, null, null, null, null, null, null, i.jnilvolume(), null, parseDiff(i.bef_diff())))
+                .toList();
+    }
+
+    // gubun2: "0"=상승, "1"=하락
+    private List<StockRankingItem> getRankingByChange(String token, String gubun, String gubun2) throws Exception {
+        record InBlock(String gubun1, String gubun2, String gubun3, int jc_num, int sprice, int eprice, int volume, int idx, int jc_num2, String exchgubun) {}
+        record Req(InBlock t1441InBlock) {}
+
+        String raw = lsWebClient.post()
+                .uri("/stock/high-item")
+                .header("authorization", "Bearer " + token)
+                .header("content-type", "application/json; charset=utf-8")
+                .header("tr_cd", "t1441")
+                .header("tr_cont", "N")
+                .header("mac_address", DUMMY_MAC)
+                .bodyValue(new Req(new InBlock(gubun, gubun2, "0", 0, 0, 0, 0, 0, 0, "U")))
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        log.debug("LS t1441 raw: {}", raw);
+        LsT1441Res res = objectMapper.readValue(raw, LsT1441Res.class);
+        if (res == null || !"00000".equals(res.rsp_cd())) {
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+
+        List<LsT1441Res.LsT1441Item> items = res.t1441OutBlock1() != null ? res.t1441OutBlock1() : List.of();
+        AtomicInteger rank = new AtomicInteger(1);
+        return items.stream()
+                .map(i -> {
+                    long total = i.bidrem1() + i.offerrem1();
+                    Integer buyRatio = total > 0 ? (int) (i.bidrem1() * 100 / total) : null;
+                    return new StockRankingItem(
+                            rank.getAndIncrement(),
+                            i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
+                            parseDiff(i.diff()), i.volume(), i.value() * 100L, i.total(), buyRatio,
+                            i.ex_shcode(), i.updaycnt(), i.offerho1(), i.bidho1(), parseDiff(i.voldiff()),
+                            null, null, null, null, null);
+                })
+                .toList();
+    }
+
+    private List<StockRankingItem> getRankingByMarketCap(String token, String gubun) throws Exception {
+        String upcode = "2".equals(gubun) ? "101" : "001";
+        record InBlock(String upcode, int idx) {}
+        record Req(InBlock t1444InBlock) {}
+
+        String raw = lsWebClient.post()
+                .uri("/stock/high-item")
+                .header("authorization", "Bearer " + token)
+                .header("content-type", "application/json; charset=utf-8")
+                .header("tr_cd", "t1444")
+                .header("tr_cont", "N")
+                .header("mac_address", DUMMY_MAC)
+                .bodyValue(new Req(new InBlock(upcode, 0)))
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        log.debug("LS t1444 raw: {}", raw);
+        LsT1444Res res = objectMapper.readValue(raw, LsT1444Res.class);
+        if (res == null || !"00000".equals(res.rsp_cd())) {
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+
+        List<LsT1444Res.LsT1444Item> items = res.t1444OutBlock1() != null ? res.t1444OutBlock1() : List.of();
+        AtomicInteger rank = new AtomicInteger(1);
+        return items.stream()
+                .map(i -> new StockRankingItem(
+                        rank.getAndIncrement(),
+                        i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
+                        parseDiff(i.diff()), i.volume(), null, i.total(), null,
+                        null, null, null, null, null, parseDiff(i.rate()), parseDiff(i.vol_rate()), null, null, null))
+                .toList();
+    }
+
+    private double parseDiff(String diff) {
+        if (diff == null || diff.isBlank()) return 0.0;
+        try {
+            return Double.parseDouble(diff.trim());
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
     }
 
     private OrderbookResponse getOrderbook(String stockCode, boolean isRetry) {
         String token = tokenService.getAccessToken();
         try {
-            record LsReqBody(String shcode) {}
-            record LsReq(LsReqBody t1101InBlock) {}
+            record LsReqBody(String shcode, String exchgubun) {}
+            record LsReq(LsReqBody t8450InBlock) {}
 
             String raw = lsWebClient.post()
                     .uri("/stock/market-data")
                     .header("authorization", "Bearer " + token)
                     .header("content-type", "application/json; charset=utf-8")
-                    .header("tr_cd", "t1101")
+                    .header("tr_cd", "t8450")
                     .header("tr_cont", "N")
                     .header("mac_address", DUMMY_MAC)
-                    .bodyValue(new LsReq(new LsReqBody(stockCode)))
+                    .bodyValue(new LsReq(new LsReqBody(stockCode, "U")))
                     .retrieve()
                     .bodyToMono(String.class)
                     .block();
 
-            log.debug("LS t1101 orderbook raw: {}", raw);
-            LsOrderbookRes lsRes = objectMapper.readValue(raw, LsOrderbookRes.class);
+            log.debug("LS t8450 orderbook raw: {}", raw);
+            LsOrderbookUnifiedRes lsRes = objectMapper.readValue(raw, LsOrderbookUnifiedRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
                 log.warn("LS API 호가 조회 실패: stockCode={}, msg={}", stockCode,
@@ -514,47 +699,21 @@ class LsMarketServiceImpl implements MarketService {
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
             }
 
-            LsOrderbookRes.LsOrderbookBlock b = lsRes.t1101OutBlock();
+            LsOrderbookUnifiedRes.LsOrderbookUnifiedBlock b = lsRes.t8450OutBlock();
             if (b == null) {
                 throw new BusinessException(MarketErrorCode.MARKET_DATA_NOT_FOUND);
             }
-
-            List<OrderbookResponse.OrderEntry> asks = List.of(
-                    new OrderbookResponse.OrderEntry(b.offerho1(),  b.offerrem1()),
-                    new OrderbookResponse.OrderEntry(b.offerho2(),  b.offerrem2()),
-                    new OrderbookResponse.OrderEntry(b.offerho3(),  b.offerrem3()),
-                    new OrderbookResponse.OrderEntry(b.offerho4(),  b.offerrem4()),
-                    new OrderbookResponse.OrderEntry(b.offerho5(),  b.offerrem5()),
-                    new OrderbookResponse.OrderEntry(b.offerho6(),  b.offerrem6()),
-                    new OrderbookResponse.OrderEntry(b.offerho7(),  b.offerrem7()),
-                    new OrderbookResponse.OrderEntry(b.offerho8(),  b.offerrem8()),
-                    new OrderbookResponse.OrderEntry(b.offerho9(),  b.offerrem9()),
-                    new OrderbookResponse.OrderEntry(b.offerho10(), b.offerrem10())
-            );
-
-            List<OrderbookResponse.OrderEntry> bids = List.of(
-                    new OrderbookResponse.OrderEntry(b.bidho1(),  b.bidrem1()),
-                    new OrderbookResponse.OrderEntry(b.bidho2(),  b.bidrem2()),
-                    new OrderbookResponse.OrderEntry(b.bidho3(),  b.bidrem3()),
-                    new OrderbookResponse.OrderEntry(b.bidho4(),  b.bidrem4()),
-                    new OrderbookResponse.OrderEntry(b.bidho5(),  b.bidrem5()),
-                    new OrderbookResponse.OrderEntry(b.bidho6(),  b.bidrem6()),
-                    new OrderbookResponse.OrderEntry(b.bidho7(),  b.bidrem7()),
-                    new OrderbookResponse.OrderEntry(b.bidho8(),  b.bidrem8()),
-                    new OrderbookResponse.OrderEntry(b.bidho9(),  b.bidrem9()),
-                    new OrderbookResponse.OrderEntry(b.bidho10(), b.bidrem10())
-            );
 
             return new OrderbookResponse(
                     stockCode,
                     b.hotime(),
                     b.yeprice(),
                     b.yevolume(),
-                    Double.parseDouble(b.yediff().trim()),
-                    b.offer(),
-                    b.bid(),
-                    b.toAsks(),
-                    b.toBids()
+                    b.yediff(),
+                    b.unx_offer(),
+                    b.unx_bid(),
+                    b.toUnifiedAsks(),
+                    b.toUnifiedBids()
             );
 
         } catch (BusinessException e) {
