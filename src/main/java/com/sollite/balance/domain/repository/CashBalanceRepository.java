@@ -7,12 +7,16 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface CashBalanceRepository extends JpaRepository<CashBalance, Long> {
 
     Optional<CashBalance> findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndCurrencyCode(
             Long accountId, Long simulationRoundId, String currencyCode);
+
+    List<CashBalance> findByAccount_AccountIdAndSimulationRound_SimulationRoundId(
+            Long accountId, Long simulationRoundId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT cb FROM CashBalance cb WHERE cb.account.accountId = :accountId " +

@@ -15,6 +15,28 @@ public interface HoldingRepository extends JpaRepository<Holding, Long> {
     List<Holding> findByAccount_AccountIdAndSimulationRound_SimulationRoundId(
             Long accountId, Long simulationRoundId);
 
+    @Query("""
+            SELECT h FROM Holding h
+            JOIN FETCH h.instrument
+            WHERE h.account.accountId = :accountId
+              AND h.simulationRound.simulationRoundId = :roundId
+              AND h.holdingQuantity > 0
+              AND h.instrument.marketType IN :marketTypes
+            """)
+    List<Holding> findActiveHoldings(@Param("accountId") Long accountId,
+                                     @Param("roundId") Long roundId,
+                                     @Param("marketTypes") List<String> marketTypes);
+
+    @Query("""
+            SELECT h FROM Holding h
+            JOIN FETCH h.instrument
+            WHERE h.account.accountId = :accountId
+              AND h.simulationRound.simulationRoundId = :roundId
+              AND h.holdingQuantity > 0
+            """)
+    List<Holding> findAllActiveHoldings(@Param("accountId") Long accountId,
+                                        @Param("roundId") Long roundId);
+
     Optional<Holding> findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndInstrument_InstrumentId(
             Long accountId, Long simulationRoundId, Long instrumentId);
 
