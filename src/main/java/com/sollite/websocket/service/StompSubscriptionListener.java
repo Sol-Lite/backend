@@ -10,7 +10,6 @@ import org.springframework.web.socket.messaging.SessionSubscribeEvent;
 import org.springframework.web.socket.messaging.SessionUnsubscribeEvent;
 
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -20,19 +19,20 @@ public class StompSubscriptionListener {
 
     private final LsBrokerService lsBrokerService;
 
-    // sessionId → Set<"trCd:key"> (세션별 구독 목록, disconnect 시 정리용)
-    private final Map<String, Set<SubscriptionInfo>> sessionSubscriptions = new ConcurrentHashMap<>();
+    // sessionId → subscriptionId → SubscriptionInfo (세션별 구독 목록, disconnect/unsubscribe 시 정리용)
+    private final Map<String, Map<String, SubscriptionInfo>> sessionSubscriptions = new ConcurrentHashMap<>();
 
     @EventListener
     public void handleSubscribe(SessionSubscribeEvent event) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
         String destination = accessor.getDestination();
         String sessionId = accessor.getSessionId();
+        String subscriptionId = accessor.getSubscriptionId();
 
         log.info("[STOMP] SUBSCRIBE: sessionId={}, destination={}", sessionId, destination);
 
-        if (destination == null || sessionId == null) {
-            log.warn("[STOMP] SUBSCRIBE 무시: destination 또는 sessionId 없음");
+        if (destination == null || sessionId == null || subscriptionId == null) {
+            log.warn("[STOMP] SUBSCRIBE 무시: destination, sessionId 또는 subscriptionId 없음");
             return;
         }
 
@@ -45,8 +45,8 @@ public class StompSubscriptionListener {
         log.info("[STOMP] SUBSCRIBE 파싱 성공: trCd={}, key={}", info.trCd(), info.key());
 
         sessionSubscriptions
-                .computeIfAbsent(sessionId, k -> ConcurrentHashMap.newKeySet())
-                .add(info);
+                .computeIfAbsent(sessionId, k -> new ConcurrentHashMap<>())
+                .put(subscriptionId, info);
 
         lsBrokerService.subscribe(info.trCd(), info.key());
     }
@@ -54,7 +54,17 @@ public class StompSubscriptionListener {
     @EventListener
     public void handleUnsubscribe(SessionUnsubscribeEvent event) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
-        log.info("[STOMP] UNSUBSCRIBE: sessionId={}", accessor.getSessionId());
+        String sessionId = accessor.getSessionId();
+        String subscriptionId = accessor.getSubscriptionId();
+
+        Map<String, SubscriptionInfo> subs = sessionSubscriptions.get(sessionId);
+        if (subs == null || subscriptionId == null) return;
+
+        SubscriptionInfo info = subs.remove(subscriptionId);
+        if (info != null) {
+            log.info("[STOMP] UNSUBSCRIBE: sessionId={}, trCd={}, key={}", sessionId, info.trCd(), info.key());
+            lsBrokerService.unsubscribe(info.trCd(), info.key());
+        }
     }
 
     @EventListener
@@ -62,14 +72,14 @@ public class StompSubscriptionListener {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
         String sessionId = accessor.getSessionId();
 
-        Set<SubscriptionInfo> subscriptions = sessionSubscriptions.remove(sessionId);
+        Map<String, SubscriptionInfo> subscriptions = sessionSubscriptions.remove(sessionId);
         if (subscriptions == null) {
             log.info("[STOMP] DISCONNECT: sessionId={}, 구독 없음", sessionId);
             return;
         }
 
         log.info("[STOMP] DISCONNECT: sessionId={}, 구독 {}개 해제 시작", sessionId, subscriptions.size());
-        for (SubscriptionInfo info : subscriptions) {
+        for (SubscriptionInfo info : subscriptions.values()) {
             log.info("[STOMP] DISCONNECT 구독 해제: trCd={}, key={}", info.trCd(), info.key());
             lsBrokerService.unsubscribe(info.trCd(), info.key());
         }
