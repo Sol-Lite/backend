@@ -25,6 +25,7 @@ import java.util.Locale;
 @Service
 @RequiredArgsConstructor
 class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
+    private static final String DUMMY_MAC = "000000000000";
     private final WebClient lsWebClient;
     private final LsTokenService tokenService;
     private final ObjectMapper objectMapper;
@@ -583,6 +584,8 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             String normalizedExchcd = normalizeExchangeCode(exchcd);
             String keysymbol = buildKeysymbol(normalizedStockCode, normalizedExchcd);
             DateTimeFormatter fmt = DATE_FMT;
+            // edate: LS API는 빈 값("")을 "최신까지"로 처리. 오늘 날짜를 직접 지정하면 "해당 자료가 없습니다." 반환
+            String edateParam = endDate.isBefore(LocalDate.now()) ? endDate.format(fmt) : "";
             LsG3204Req requestBody = new LsG3204Req(
                     new LsG3204Req.G3204InBlock(
                             "Y",
@@ -594,7 +597,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
                             DEFAULT_CHART_QRYCNT,
                             "N",
                             startDate.format(fmt),
-                            endDate.format(fmt),
+                            edateParam,
                             "",
                             ""
                     )
@@ -685,22 +688,10 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             Object requestBody
     ) {
         String requestJson = toJson(requestBody);
-        log.debug(
-                "LS request: trCd={}, uri={}, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, trCont=N, trContKey='{}', macAddressEnabled={}, macAddressHeader={}, authorizationPresent={}, authorizationLength={}, body={}",
-                trCd,
-                uri,
-                stockCode,
-                originalExchcd,
-                normalizedExchcd,
-                normalizedStockCode,
-                keysymbol,
-                INITIAL_TR_CONT_KEY,
-                hasMacAddress(),
-                maskedMacAddress(),
-                token != null && !token.isBlank(),
-                token != null ? token.length() : 0,
-                requestJson
-        );
+        log.info("[REST-REQ] trCd={}, stockCode={}, exchcd={}, keysymbol={}, macAddress={}, body={}",
+                trCd, stockCode, normalizedExchcd, keysymbol,
+                hasMacAddress() ? "설정됨" : "미설정(헤더생략)",
+                requestJson);
 
         WebClient.RequestBodySpec requestSpec = lsWebClient.post()
                 .uri(uri)
@@ -718,24 +709,31 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
                 .exchangeToMono(response -> response.bodyToMono(String.class)
                         .defaultIfEmpty("")
                         .map(raw -> {
-                            log.debug(
-                                    "LS response: trCd={}, uri={}, stockCode={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, status={}, responseTrCd={}, responseTrCont={}, responseTrContKey={}, contentType={}, raw={}",
-                                    trCd,
-                                    uri,
-                                    stockCode,
-                                    normalizedExchcd,
-                                    normalizedStockCode,
-                                    keysymbol,
-                                    response.statusCode().value(),
-                                    firstHeader(response.headers().asHttpHeaders(), "tr_cd"),
-                                    firstHeader(response.headers().asHttpHeaders(), "tr_cont"),
-                                    firstHeader(response.headers().asHttpHeaders(), "tr_cont_key"),
-                                    response.headers().contentType().map(Object::toString).orElse(""),
-                                    raw
-                            );
+                            int status = response.statusCode().value();
+                            if (status == 200) {
+                                log.info("[REST-RES] trCd={}, stockCode={}, status={}, rspCd={}, raw={}",
+                                        trCd, stockCode, status,
+                                        extractRspCd(raw),
+                                        raw.length() > 300 ? raw.substring(0, 300) + "..." : raw);
+                            } else {
+                                log.warn("[REST-RES] trCd={}, stockCode={}, status={} (비정상), raw={}",
+                                        trCd, stockCode, status, raw);
+                            }
                             return raw;
                         }))
                 .block();
+    }
+
+    private String extractRspCd(String raw) {
+        try {
+            int idx = raw.indexOf("\"rsp_cd\"");
+            if (idx < 0) return "N/A";
+            int start = raw.indexOf('"', idx + 8) + 1;
+            int end = raw.indexOf('"', start);
+            return raw.substring(start, end);
+        } catch (Exception e) {
+            return "N/A";
+        }
     }
 
     private String toJson(Object value) {
@@ -755,13 +753,17 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
         return StringUtils.hasText(configuredMacAddress);
     }
 
+    private String resolvedMacAddress() {
+        return hasMacAddress() ? normalizedMacAddress() : DUMMY_MAC;
+    }
+
     private String normalizedMacAddress() {
-        return configuredMacAddress.trim();
+        return configuredMacAddress.replaceAll("[:\\-]", "").trim();
     }
 
     private String maskedMacAddress() {
         if (!hasMacAddress()) {
-            return "<omitted>";
+            return DUMMY_MAC;
         }
 
         String mac = normalizedMacAddress();

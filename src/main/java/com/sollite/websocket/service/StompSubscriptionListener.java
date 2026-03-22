@@ -29,26 +29,32 @@ public class StompSubscriptionListener {
         String destination = accessor.getDestination();
         String sessionId = accessor.getSessionId();
 
-        if (destination == null || sessionId == null) return;
+        log.info("[STOMP] SUBSCRIBE: sessionId={}, destination={}", sessionId, destination);
+
+        if (destination == null || sessionId == null) {
+            log.warn("[STOMP] SUBSCRIBE 무시: destination 또는 sessionId 없음");
+            return;
+        }
 
         SubscriptionInfo info = parseDestination(destination);
-        if (info == null) return;
+        if (info == null) {
+            log.warn("[STOMP] SUBSCRIBE 무시: 매핑 없는 destination={}", destination);
+            return;
+        }
 
-        // 세션별 구독 목록에 추가
+        log.info("[STOMP] SUBSCRIBE 파싱 성공: trCd={}, key={}", info.trCd(), info.key());
+
         sessionSubscriptions
                 .computeIfAbsent(sessionId, k -> ConcurrentHashMap.newKeySet())
                 .add(info);
 
         lsBrokerService.subscribe(info.trCd(), info.key());
-        log.info("STOMP 구독: sessionId={}, destination={}", sessionId, destination);
     }
 
     @EventListener
     public void handleUnsubscribe(SessionUnsubscribeEvent event) {
-        // STOMP unsubscribe는 destination 정보가 없어 subscriptionId로 관리해야 하지만
-        // disconnect에서 일괄 정리하므로 여기서는 로그만
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
-        log.debug("STOMP 구독 해제: sessionId={}", accessor.getSessionId());
+        log.info("[STOMP] UNSUBSCRIBE: sessionId={}", accessor.getSessionId());
     }
 
     @EventListener
@@ -57,13 +63,16 @@ public class StompSubscriptionListener {
         String sessionId = accessor.getSessionId();
 
         Set<SubscriptionInfo> subscriptions = sessionSubscriptions.remove(sessionId);
-        if (subscriptions == null) return;
-
-        for (SubscriptionInfo info : subscriptions) {
-            lsBrokerService.unsubscribe(info.trCd(), info.key());
+        if (subscriptions == null) {
+            log.info("[STOMP] DISCONNECT: sessionId={}, 구독 없음", sessionId);
+            return;
         }
 
-        log.info("STOMP 연결 종료: sessionId={}, 구독 {}개 해제", sessionId, subscriptions.size());
+        log.info("[STOMP] DISCONNECT: sessionId={}, 구독 {}개 해제 시작", sessionId, subscriptions.size());
+        for (SubscriptionInfo info : subscriptions) {
+            log.info("[STOMP] DISCONNECT 구독 해제: trCd={}, key={}", info.trCd(), info.key());
+            lsBrokerService.unsubscribe(info.trCd(), info.key());
+        }
     }
 
     /**

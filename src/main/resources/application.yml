@@ -87,10 +87,16 @@ app:
 
 # ── Logging ──
 logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} : %msg%n"
   level:
-    com.sollite: DEBUG
-    org.hibernate.SQL: DEBUG
-    reactor.netty.http.client: DEBUG
+    root: INFO
+    com.sollite: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    reactor.netty: WARN
 
 
 # ── LS Securities API  & Websocket ──
@@ -102,3 +108,18 @@ ls:
     mac-address: ${LS_MAC_ADDRESS:}
   ws:
     url: wss://openapi.ls-sec.co.kr:29443/websocket
+---
+spring:
+  config:
+    activate:
+      on-profile: foreign-debug
+
+logging:
+  level:
+    com.sollite.foreignmarket: DEBUG
+    com.sollite.websocket: DEBUG
+    com.sollite.global.service.LsTokenService: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: DEBUG
+    reactor.netty: INFO
+    reactor.netty.http.client: WARN

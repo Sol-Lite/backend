@@ -142,7 +142,7 @@ class ForeignStockMarketServiceTest {
             foreignStockMarketService.getCurrentPrice("nvda", "NAS");
 
             verify(requestBodySpec).header("tr_cont_key", "");
-            verify(requestBodySpec, never()).header(eq("mac_address"), anyString());
+            verify(requestBodySpec).header("mac_address", "00:00:00:00:00:00");
             verify(requestBodySpec).bodyValue(new LsG3101Req(
                     new LsG3101Req.G3101InBlock("R", "82NVDA", "82", "NVDA")
             ));

@@ -1,7 +1,9 @@
 package com.sollite.websocket.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.global.service.LsTokenService;
+import com.sollite.market.domain.repository.InstrumentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -10,15 +12,20 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
+import java.lang.reflect.Method;
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("LsBrokerService 단위 테스트")
@@ -35,6 +42,12 @@ class LsBrokerServiceTest {
 
     @Mock
     private SimpMessagingTemplate messagingTemplate;
+
+    @Mock
+    private StringRedisTemplate redisTemplate;
+
+    @Mock
+    private InstrumentRepository instrumentRepository;
 
     private Map<String, AtomicInteger> subscriberCount;
     private Set<String> activeSubscriptions;
@@ -170,6 +183,63 @@ class LsBrokerServiceTest {
             // 재구독
             lsBrokerService.subscribe("GSH", "TSLA");
             assertThat(subscriberCount.get("GSH:TSLA").get()).isEqualTo(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("실시간 메시지 처리")
+    class HandleLsMessage {
+
+        @Test
+        @DisplayName("해외 실시간 symbol 공백 패딩은 제거하고 토픽으로 발행한다")
+        void foreignRealtimeSymbol_isTrimmedBeforePublish() throws Exception {
+            String payload = """
+                    {
+                      "header": { "tr_cd": "GSH" },
+                      "body": {
+                        "symbol": "TSLA              ",
+                        "price": "250.75"
+                      }
+                    }
+                    """;
+            JsonNode root = new ObjectMapper().readTree(payload);
+            given(objectMapper.readTree(payload)).willReturn(root);
+
+            Method handleLsMessage = LsBrokerService.class.getDeclaredMethod("handleLsMessage", String.class);
+            handleLsMessage.setAccessible(true);
+            handleLsMessage.invoke(lsBrokerService, payload);
+
+            verify(messagingTemplate).convertAndSend("/topic/foreign/quote/TSLA", root.get("body").toString());
+            assertThat(lsBrokerService.getLastValue("/topic/foreign/quote/TSLA")).isEqualTo(root.get("body").toString());
+        }
+    }
+
+    @Nested
+    @DisplayName("해외 실시간 tr_key 생성")
+    class ForeignRealtimeTrKey {
+
+        @Test
+        @DisplayName("심볼만 들어오면 종목 테이블의 거래소코드를 붙여 18자리 tr_key를 만든다")
+        void symbolOnlyKey_resolvesExchangeCodeFromInstrument() throws Exception {
+            given(instrumentRepository.findFirstExchangeCodeByStockCode("TSLA")).willReturn(Optional.of("82"));
+
+            Method formatTrKey = LsBrokerService.class.getDeclaredMethod("formatTrKey", String.class, String.class);
+            formatTrKey.setAccessible(true);
+
+            String trKey = (String) formatTrKey.invoke(lsBrokerService, "GSH", "TSLA");
+
+            assertThat(trKey).isEqualTo("82TSLA            ");
+        }
+
+        @Test
+        @DisplayName("이미 거래소코드가 붙은 키는 그대로 18자리 패딩한다")
+        void resolvedKey_keepsExchangeCodePrefix() throws Exception {
+            Method formatTrKey = LsBrokerService.class.getDeclaredMethod("formatTrKey", String.class, String.class);
+            formatTrKey.setAccessible(true);
+
+            String trKey = (String) formatTrKey.invoke(lsBrokerService, "GSH", "81SOXL");
+
+            assertThat(trKey).isEqualTo("81SOXL            ");
         }
     }
 }

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
 
@@ -16,4 +17,19 @@ public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
             "ORDER BY CASE WHEN UPPER(i.stockCode) = UPPER(:keyword) THEN 0 " +
             "WHEN UPPER(i.stockCode) LIKE UPPER(CONCAT(:keyword, '%')) THEN 1 ELSE 2 END")
     List<Instrument> searchByKeyword(@Param("keyword") String keyword);
+
+    @Query(value = """
+            SELECT exchange_code
+            FROM instruments
+            WHERE active_yn = 'Y'
+              AND UPPER(stock_code) = UPPER(:stockCode)
+              AND exchange_code IS NOT NULL
+              AND TRIM(exchange_code) IS NOT NULL
+            ORDER BY instrument_id ASC
+            """, nativeQuery = true)
+    List<String> findExchangeCodesByStockCode(@Param("stockCode") String stockCode);
+
+    default Optional<String> findFirstExchangeCodeByStockCode(String stockCode) {
+        return findExchangeCodesByStockCode(stockCode).stream().findFirst();
+    }
 }
