@@ -4,14 +4,18 @@ import com.sollite.order.domain.enums.OrderChannel;
 import com.sollite.order.domain.enums.OrderKind;
 import com.sollite.order.domain.enums.OrderSide;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 
 public record PlaceOrderRequest(
 
-        @NotNull(message = "종목 ID는 필수입니다")
-        Long instrumentId,
+        @NotBlank(message = "종목 코드는 필수입니다")
+        String stockCode,
+
+        @NotBlank(message = "마켓 구분은 필수입니다")
+        String marketType,
 
         @NotNull(message = "매수/매도 구분은 필수입니다")
         OrderSide orderSide,

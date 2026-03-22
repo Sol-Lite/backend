@@ -89,8 +89,9 @@ public class OrderService {
                 .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), RoundStatus.ACTIVE)
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
 
-        // 2. 종목 조회
-        Instrument instrument = instrumentRepository.findById(req.instrumentId())
+        // 2. 종목 조회 (stockCode + marketType → Instrument)
+        Instrument instrument = instrumentRepository
+                .findByStockCodeAndMarketType(req.stockCode(), req.marketType())
                 .orElseThrow(() -> new BusinessException(OrderErrorCode.INSTRUMENT_NOT_FOUND));
 
         // 3. 수량 검증
