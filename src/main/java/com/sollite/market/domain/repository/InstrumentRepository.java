@@ -42,4 +42,14 @@ public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
     Optional<Instrument> findByStockCodeAndMarketType(
             @Param("stockCode") String stockCode,
             @Param("marketType") String marketType);
+
+    @Query("""
+            SELECT i FROM Instrument i
+            WHERE i.activeYn = 'Y'
+              AND UPPER(i.stockCode) = UPPER(:stockCode)
+              AND i.marketType IN :marketTypes
+            """)
+    Optional<Instrument> findByStockCodeAndMarketTypeIn(
+            @Param("stockCode") String stockCode,
+            @Param("marketTypes") List<String> marketTypes);
 }

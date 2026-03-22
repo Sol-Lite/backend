@@ -487,7 +487,7 @@ public class OrderService {
     private BigDecimal resolveLastPrice(Instrument instrument) {
         // 1. 인메모리 캐시에서 먼저 시도
         String topic;
-        if ("FOREIGN".equalsIgnoreCase(instrument.getMarketType())) {
+        if (List.of("NASDAQ", "NYSE", "AMEX").contains(instrument.getMarketType())) {
             topic = "/topic/foreign/transaction/" + instrument.getStockCode();
         } else {
             topic = "/topic/stock/trade/" + instrument.getStockCode();
@@ -513,7 +513,7 @@ public class OrderService {
      */
     private BigDecimal fetchCurrentPrice(Instrument instrument) {
         try {
-            if ("FOREIGN".equalsIgnoreCase(instrument.getMarketType())) {
+            if (List.of("NASDAQ", "NYSE", "AMEX").contains(instrument.getMarketType())) {
                 String exchcd = resolveExchangeCode(instrument.getExchangeCode());
                 var response = foreignStockMarketService.getCurrentPrice(instrument.getStockCode(), exchcd);
                 return BigDecimal.valueOf(response.price());

@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -182,7 +183,7 @@ public class OrderWaitingSubscriptionManager {
      * 국내: US3 (체결), 해외: GSC (체결)
      */
     private String resolveTrCd(String marketType) {
-        if ("FOREIGN".equalsIgnoreCase(marketType)) {
+        if (List.of("NASDAQ", "NYSE", "AMEX").contains(marketType)) {
             return "GSC";
         }
         return "US3";

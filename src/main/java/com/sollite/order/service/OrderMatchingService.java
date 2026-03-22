@@ -37,10 +37,10 @@ public class OrderMatchingService {
     @Async
     @EventListener
     public void onMarketTick(MarketTickEvent event) {
-        String marketType = resolveMarketType(event.trCd());
+        List<String> marketTypes = resolveMarketTypes(event.trCd());
 
         Instrument instrument = instrumentRepository
-                .findByStockCodeAndMarketType(event.symbol(), marketType)
+                .findByStockCodeAndMarketTypeIn(event.symbol(), marketTypes)
                 .orElse(null);
 
         if (instrument == null) {
@@ -107,12 +107,13 @@ public class OrderMatchingService {
     }
 
     /**
-     * trCd → marketType 변환
+     * trCd → marketType 목록 변환
+     * US3: KOSPI·KOSDAQ (국내), GSH·GSC: NASDAQ·NYSE·AMEX (해외)
      */
-    private String resolveMarketType(String trCd) {
+    private List<String> resolveMarketTypes(String trCd) {
         return switch (trCd) {
-            case "GSH", "GSC" -> "FOREIGN";
-            default -> "DOMESTIC";
+            case "GSH", "GSC" -> List.of("NASDAQ", "NYSE", "AMEX");
+            default -> List.of("KOSPI", "KOSDAQ");
         };
     }
 }

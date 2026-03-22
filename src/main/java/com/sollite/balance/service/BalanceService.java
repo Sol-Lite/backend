@@ -94,7 +94,7 @@ public class BalanceService {
      * 국내 주식 잔고
      */
     private static final List<String> DOMESTIC_MARKET_TYPES = List.of("KOSPI", "KOSDAQ");
-    private static final List<String> OVERSEAS_MARKET_TYPES = List.of("NASDAQ", "NYSE", "AMEX", "FOREIGN");
+    private static final List<String> OVERSEAS_MARKET_TYPES = List.of("NASDAQ", "NYSE", "AMEX");
 
     public List<HoldingResponse> getDomesticHoldings(Long userId) {
         var pair = resolveAccountAndRound(userId);
