@@ -1,4 +1,6 @@
 package com.sollite.watchlist.dto;
 
-public record WatchlistAddRequest(String stockCode) {
+import jakarta.validation.constraints.NotBlank;
+
+public record WatchlistAddRequest(@NotBlank String stockCode) {
 }

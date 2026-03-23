@@ -20,11 +20,13 @@ public interface WatchlistItemRepository extends JpaRepository<WatchlistItem, Lo
     @Query("SELECT COALESCE(MAX(wi.displayOrder), 0) FROM WatchlistItem wi WHERE wi.userId = :userId")
     int findMaxDisplayOrderByUserId(@Param("userId") Long userId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("DELETE FROM WatchlistItem wi WHERE wi.userId = :userId AND wi.instrument.stockCode = :stockCode")
     int deleteByUserIdAndStockCode(@Param("userId") Long userId, @Param("stockCode") String stockCode);
 
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("UPDATE WatchlistItem wi SET wi.displayOrder = :displayOrder WHERE wi.userId = :userId AND wi.instrument.stockCode = :stockCode")
     void updateDisplayOrder(@Param("userId") Long userId, @Param("stockCode") String stockCode, @Param("displayOrder") int displayOrder);
+
+    long countByUserId(Long userId);
 }

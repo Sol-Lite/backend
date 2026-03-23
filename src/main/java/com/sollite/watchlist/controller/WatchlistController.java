@@ -5,6 +5,7 @@ import com.sollite.watchlist.dto.WatchlistAddRequest;
 import com.sollite.watchlist.dto.WatchlistItemResponse;
 import com.sollite.watchlist.dto.WatchlistOrderRequest;
 import com.sollite.watchlist.service.WatchlistService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,7 +30,7 @@ public class WatchlistController {
     @PostMapping
     public ResponseEntity<Void> addToWatchlist(
             Authentication authentication,
-            @RequestBody WatchlistAddRequest request) {
+            @Valid @RequestBody WatchlistAddRequest request) {
         Long userId = AuthUtil.getUserId(authentication);
         watchlistService.addToWatchlist(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).build();
@@ -47,7 +48,7 @@ public class WatchlistController {
     @PatchMapping("/order")
     public ResponseEntity<Void> updateOrder(
             Authentication authentication,
-            @RequestBody WatchlistOrderRequest request) {
+            @Valid @RequestBody WatchlistOrderRequest request) {
         Long userId = AuthUtil.getUserId(authentication);
         watchlistService.updateOrder(userId, request);
         return ResponseEntity.noContent().build();
