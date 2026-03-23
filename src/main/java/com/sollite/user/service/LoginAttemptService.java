@@ -41,4 +41,12 @@ public class LoginAttemptService {
         user.resetLoginFailCount();
         userRepository.save(user);
     }
+
+    @Transactional
+    public void unlockIfExpired(User user) {
+        if (user.isLockExpired()) {
+            user.unlock();
+            userRepository.save(user);
+        }
+    }
 }
