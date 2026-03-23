@@ -79,4 +79,8 @@ public class MarketController {
         return ResponseEntity.ok(marketService.getRanking(type, market));
     }
 
+    @GetMapping("/stocks/{stockCode}/info")
+    public ResponseEntity<StockInfoResponse> getStockInfo(@PathVariable String stockCode) {
+        return ResponseEntity.ok(marketService.getStockInfo(stockCode));
+    }
 }

@@ -731,4 +731,97 @@ class LsMarketServiceImpl implements MarketService {
             throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
         }
     }
+
+    @Override
+    @Cacheable(cacheNames = "market:info", key = "#stockCode")
+    public StockInfoResponse getStockInfo(String stockCode) {
+        return getStockInfo(stockCode, false);
+    }
+
+    private StockInfoResponse getStockInfo(String stockCode, boolean isRetry) {
+        String token = tokenService.getAccessToken();
+        try {
+            // t1102 - 상장일 조회
+            record T1102ReqBody(String shcode) {}
+            record T1102Req(T1102ReqBody t1102InBlock) {}
+
+            String raw1102 = lsWebClient.post()
+                    .uri("/stock/market-data")
+                    .header("authorization", "Bearer " + token)
+                    .header("content-type", "application/json; charset=utf-8")
+                    .header("tr_cd", "t1102")
+                    .header("tr_cont", "N")
+                    .header("mac_address", DUMMY_MAC)
+                    .bodyValue(new T1102Req(new T1102ReqBody(stockCode)))
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            log.debug("LS t1102 raw (info): {}", raw1102);
+            LsCurrentPriceRes res1102 = objectMapper.readValue(raw1102, LsCurrentPriceRes.class);
+            if (res1102 == null || !"00000".equals(res1102.rsp_cd())) {
+                throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+            }
+
+            // t3320 - 기업명/업종 조회
+            record T3320ReqBody(String gicode) {}
+            record T3320Req(T3320ReqBody t3320InBlock) {}
+
+            String raw3320 = lsWebClient.post()
+                    .uri("/stock/investinfo")
+                    .header("authorization", "Bearer " + token)
+                    .header("content-type", "application/json; charset=utf-8")
+                    .header("tr_cd", "t3320")
+                    .header("tr_cont", "N")
+                    .header("mac_address", DUMMY_MAC)
+                    .bodyValue(new T3320Req(new T3320ReqBody(stockCode)))
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            log.debug("LS t3320 raw: {}", raw3320);
+            LsT3320Res res3320 = objectMapper.readValue(raw3320, LsT3320Res.class);
+            if (res3320 == null || !"00000".equals(res3320.rsp_cd())) {
+                throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+            }
+
+            // 상장일 포맷 변환: yyyyMMdd → yyyy-MM-dd
+            String listdate = res1102.t1102OutBlock().listdate();
+            String formattedListDate = (listdate != null && listdate.length() == 8)
+                    ? listdate.substring(0, 4) + "-" + listdate.substring(4, 6) + "-" + listdate.substring(6, 8)
+                    : listdate;
+
+            LsT3320Res.LsT3320OutBlock info = res3320.t3320OutBlock();
+            return new StockInfoResponse(
+                    stockCode,
+                    info.company(),
+                    info.upgubunnm(),
+                    resolveMarketName(info.marketnm()),
+                    formattedListDate
+            );
+
+        } catch (BusinessException e) {
+            throw e;
+        } catch (WebClientResponseException e) {
+            if (!isRetry && e.getStatusCode().value() == 401) {
+                tokenService.invalidateToken();
+                return getStockInfo(stockCode, true);
+            }
+            log.error("LS증권 API 호출 실패: {}", e.getResponseBodyAsString());
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        } catch (Exception e) {
+            log.error("기업 정보 조회 실패: stockCode={}, error={}", stockCode, e.getMessage());
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+    }
+
+    private String resolveMarketName(String marketnm) {
+        if (marketnm == null) return "";
+        return switch (marketnm.trim()) {
+            case "거래소" -> "KOSPI";
+            case "코스닥" -> "KOSDAQ";
+            case "코넥스" -> "KONEX";
+            default -> marketnm;
+        };
+    }
 }
