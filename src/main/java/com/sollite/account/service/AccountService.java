@@ -10,13 +10,8 @@ import com.sollite.account.domain.repository.SimulationRoundRepository;
 import com.sollite.account.dto.AccountInfoResponse;
 import com.sollite.account.dto.AccountResetResponse;
 import com.sollite.account.exception.AccountErrorCode;
-import com.sollite.balance.domain.entity.CashBalance;
-import com.sollite.balance.domain.repository.CashBalanceRepository;
-import com.sollite.balance.domain.repository.HoldingRepository;
-import com.sollite.balance.exception.BalanceErrorCode;
+import com.sollite.balance.service.BalanceService;
 import com.sollite.global.exception.BusinessException;
-import com.sollite.order.domain.enums.OrderStatus;
-import com.sollite.order.domain.repository.OrderRepository;
 import com.sollite.user.domain.entity.User;
 import com.sollite.user.domain.repository.UserRepository;
 import com.sollite.user.exception.UserErrorCode;
@@ -27,7 +22,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Service
@@ -41,9 +35,7 @@ public class AccountService {
     private final UserRepository userRepository;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
-    private final CashBalanceRepository cashBalanceRepository;
-    private final HoldingRepository holdingRepository;
-    private final OrderRepository orderRepository;
+    private final BalanceService balanceService;
 
     /**
      * Facade에서 호출하는 계좌 생성 메서드. 트랜잭션은 Facade가 관리합니다.
@@ -71,13 +63,7 @@ public class AccountService {
         simulationRoundRepository.save(round);
 
         // 초기 현금 잔고 1억원 생성
-        cashBalanceRepository.save(CashBalance.builder()
-                .account(account)
-                .simulationRound(round)
-                .currencyCode("KRW")
-                .availableAmount(SEED_MONEY)
-                .totalAmount(SEED_MONEY)
-                .build());
+        balanceService.initializeCashBalance(account, round, SEED_MONEY);
 
         return account;
     }
@@ -166,19 +152,15 @@ public class AccountService {
         simulationRoundRepository.save(newRound);
 
         // 새 라운드 현금 잔고 1억원으로 초기화
-        cashBalanceRepository.save(CashBalance.builder()
-                .account(account)
-                .simulationRound(newRound)
-                .currencyCode("KRW")
-                .availableAmount(SEED_MONEY)
-                .totalAmount(SEED_MONEY)
-                .build());
+        balanceService.initializeCashBalance(account, newRound, SEED_MONEY);
 
         return new AccountResetResponse("시뮬레이션이 초기화되었습니다.", newRound.getRoundNo());
     }
 
+    public record CloseContext(Account account, SimulationRound round) {}
+
     @Transactional
-    public void closeAccount(Long userId, String accountPin) {
+    public CloseContext validateAndGetCloseContext(Long userId, String accountPin) {
         Account account = accountRepository.findByUserIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
 
@@ -194,35 +176,13 @@ public class AccountService {
                 .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), RoundStatus.ACTIVE)
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
 
-        // 잔고 > 0 이면 폐쇄 불가
-        CashBalance cb = cashBalanceRepository
-                .findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndCurrencyCode(
-                        account.getAccountId(), currentRound.getSimulationRoundId(), "KRW")
-                .orElseThrow(() -> new BusinessException(BalanceErrorCode.CASH_BALANCE_NOT_FOUND));
-        if (cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
-            throw new BusinessException(AccountErrorCode.ACCOUNT_CLOSE_BALANCE_REMAINS);
-        }
+        return new CloseContext(account, currentRound);
+    }
 
-        // 보유 주식 있으면 폐쇄 불가
-        boolean hasHoldings = holdingRepository
-                .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(
-                        account.getAccountId(), currentRound.getSimulationRoundId())
-                .stream().anyMatch(h -> h.getHoldingQuantity() > 0);
-        if (hasHoldings) {
-            throw new BusinessException(AccountErrorCode.ACCOUNT_CLOSE_HOLDINGS_REMAIN);
-        }
-
-        // 미체결 주문 있으면 폐쇄 불가
-        boolean hasPendingOrders = !orderRepository
-                .findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndOrderStatusIn(
-                        account.getAccountId(), currentRound.getSimulationRoundId(), List.of(OrderStatus.PENDING))
-                .isEmpty();
-        if (hasPendingOrders) {
-            throw new BusinessException(AccountErrorCode.ACCOUNT_CLOSE_PENDING_ORDER_EXISTS);
-        }
-
-        currentRound.close(RoundEndReasonCode.ACCOUNT_CLOSED);
-        account.close();
+    @Transactional
+    public void executeClose(CloseContext ctx) {
+        ctx.round().close(RoundEndReasonCode.ACCOUNT_CLOSED);
+        ctx.account().close();
     }
 
     private String generateAccountNo() {

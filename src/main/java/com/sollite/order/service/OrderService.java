@@ -360,6 +360,21 @@ public class OrderService {
     }
 
     // -----------------------------------------------------------------------
+    // 계좌 폐쇄 전 미체결 주문 검증
+    // -----------------------------------------------------------------------
+
+    @Transactional(readOnly = true)
+    public void validateNoPendingOrders(Long accountId, Long roundId) {
+        boolean hasPendingOrders = !orderRepository
+                .findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndOrderStatusIn(
+                        accountId, roundId, List.of(OrderStatus.PENDING))
+                .isEmpty();
+        if (hasPendingOrders) {
+            throw new BusinessException(AccountErrorCode.ACCOUNT_CLOSE_PENDING_ORDER_EXISTS);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // 미체결 전체 취소
     // -----------------------------------------------------------------------
 

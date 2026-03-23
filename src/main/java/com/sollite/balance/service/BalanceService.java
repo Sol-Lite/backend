@@ -46,6 +46,47 @@ public class BalanceService {
     private final MarketService marketService;
     private final ForeignStockMarketService foreignStockMarketService;
 
+    private static final BigDecimal SEED_MONEY = new BigDecimal("100000000");
+
+    /**
+     * 계좌 개설/리셋 시 초기 현금 잔고 생성
+     */
+    @Transactional
+    public void initializeCashBalance(Account account, SimulationRound round, BigDecimal initialAmount) {
+        cashBalanceRepository.save(CashBalance.builder()
+                .account(account)
+                .simulationRound(round)
+                .currencyCode("KRW")
+                .availableAmount(initialAmount)
+                .totalAmount(initialAmount)
+                .build());
+    }
+
+    /**
+     * 계좌 폐쇄 전 현금 잔고 검증 — 잔고 > 0 이면 예외
+     */
+    public void validateCashForClose(Long accountId, Long roundId) {
+        CashBalance cb = cashBalanceRepository
+                .findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndCurrencyCode(
+                        accountId, roundId, "KRW")
+                .orElseThrow(() -> new BusinessException(BalanceErrorCode.CASH_BALANCE_NOT_FOUND));
+        if (cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
+            throw new BusinessException(AccountErrorCode.ACCOUNT_CLOSE_BALANCE_REMAINS);
+        }
+    }
+
+    /**
+     * 계좌 폐쇄 전 보유 종목 검증 — 보유 수량 > 0 이면 예외
+     */
+    public void validateHoldingsForClose(Long accountId, Long roundId) {
+        boolean hasHoldings = holdingRepository
+                .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId)
+                .stream().anyMatch(h -> h.getHoldingQuantity() > 0);
+        if (hasHoldings) {
+            throw new BusinessException(AccountErrorCode.ACCOUNT_CLOSE_HOLDINGS_REMAIN);
+        }
+    }
+
     /**
      * 예수금 조회 (통화별 available / total)
      */
@@ -208,7 +249,7 @@ public class BalanceService {
 
     private BigDecimal fetchCurrentPrice(Instrument instrument) {
         try {
-            if ("FOREIGN".equalsIgnoreCase(instrument.getMarketType())) {
+            if (List.of("NASDAQ", "NYSE", "AMEX").contains(instrument.getMarketType())) {
                 String exchcd = resolveExchangeCode(instrument.getExchangeCode());
                 var response = foreignStockMarketService.getCurrentPrice(instrument.getStockCode(), exchcd);
                 return BigDecimal.valueOf(response.price());
