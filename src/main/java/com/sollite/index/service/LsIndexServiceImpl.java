@@ -52,6 +52,7 @@ class LsIndexServiceImpl implements IndexService {
             return null;
         }
         try {
+            //FIXME: KOSPI?
             JsonNode body = objectMapper.readTree(json);
             if ("domestic".equals(meta.type())) {
                 return new IndexResponse(

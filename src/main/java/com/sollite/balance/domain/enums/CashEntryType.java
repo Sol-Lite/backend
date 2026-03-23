@@ -6,5 +6,6 @@ public enum CashEntryType {
     BUY_RESERVE_CANCEL, // 매수 주문 취소/거부 — 가용금액 복원
     BUY_SETTLE,         // 매수 체결 — 실제 현금 차감 (total_amount)
     SELL_SETTLE,        // 매도 체결 — 현금 증가
-    RESET               // 시뮬레이션 초기화
+    RESET,              // 시뮬레이션 초기화
+    ACCOUNT_CLOSE_RESET // 계좌 폐쇄 전 현금 0원 처리
 }

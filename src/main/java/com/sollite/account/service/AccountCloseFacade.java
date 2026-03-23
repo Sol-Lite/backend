@@ -2,6 +2,7 @@ package com.sollite.account.service;
 
 import com.sollite.balance.service.BalanceService;
 import com.sollite.order.service.OrderService;
+import com.sollite.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,7 @@ public class AccountCloseFacade {
     private final AccountService accountService;
     private final BalanceService balanceService;
     private final OrderService orderService;
+    private final UserService userService;
 
     @Transactional
     public void closeAccount(Long userId, String accountPin) {
@@ -30,5 +32,6 @@ public class AccountCloseFacade {
         orderService.validateNoPendingOrders(accountId, roundId);
 
         accountService.executeClose(ctx);
+        userService.withdraw(userId);
     }
 }
