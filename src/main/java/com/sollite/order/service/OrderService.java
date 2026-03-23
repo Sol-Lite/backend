@@ -377,8 +377,16 @@ public class OrderService {
 
         int count = 0;
         for (Order order : pendingOrders) {
-            cancelOrder(userId, order.getOrderId());
-            count++;
+            try {
+                cancelOrder(userId, order.getOrderId());
+                count++;
+            } catch (BusinessException e) {
+                if (e.getErrorCode() == OrderErrorCode.ORDER_NOT_CANCELLABLE) {
+                    log.info("[ORDER] 취소 스킵 (이미 체결/취소) — orderId={}", order.getOrderId());
+                } else {
+                    throw e;
+                }
+            }
         }
 
         log.info("[ORDER] 미체결 전체 취소 완료 — userId={}, count={}", userId, count);
