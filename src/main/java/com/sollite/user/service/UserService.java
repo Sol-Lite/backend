@@ -198,14 +198,16 @@ public class UserService {
         String newAccessToken = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
 
         long remainingTtl = redisTemplate.getExpire("refresh:" + userId, TimeUnit.MILLISECONDS);
-        long ttlForCookie = remainingTtl > 0 ? remainingTtl : jwtTokenProvider.getRefreshTokenExpiry(false);
-        String newRefreshToken = jwtTokenProvider.createRefreshToken(user.getUserId(), ttlForCookie);
+        if (remainingTtl <= 0) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+        String newRefreshToken = jwtTokenProvider.createRefreshToken(user.getUserId(), remainingTtl);
 
         // 검증 + 갱신 원자 처리
         Long result = redisTemplate.execute(
                 ROTATE_SCRIPT,
                 List.of("refresh:" + userId),
-                refreshToken, newRefreshToken, String.valueOf(ttlForCookie));
+                refreshToken, newRefreshToken, String.valueOf(remainingTtl));
 
         if (result == null || result == 0L) {
             throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
@@ -220,7 +222,7 @@ public class UserService {
                         jwtTokenProvider.getAccessTokenExpiry() / 1000
                 ),
                 newRefreshToken,
-                ttlForCookie
+                remainingTtl
         );
     }
 

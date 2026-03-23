@@ -9,7 +9,6 @@ import com.sollite.account.dto.PinResetConfirmRequest;
 import com.sollite.account.dto.PinVerifyRequest;
 import com.sollite.account.service.AccountCloseFacade;
 import com.sollite.account.service.AccountService;
-import com.sollite.balance.service.BalanceService;
 import com.sollite.global.util.AuthUtil;
 import com.sollite.user.dto.MessageResponse;
 import jakarta.validation.Valid;
@@ -31,7 +30,6 @@ public class AccountController {
 
     private final AccountService accountService;
     private final AccountCloseFacade accountCloseFacade;
-    private final BalanceService balanceService;
 
     /**
      * 현재 로그인한 사용자의 계좌 정보를 조회합니다.
@@ -136,8 +134,7 @@ public class AccountController {
             Authentication authentication,
             @Valid @RequestBody AccountCloseRequest request) {
         Long userId = AuthUtil.getUserId(authentication);
-        accountService.verifyPin(userId, request.accountPin());
-        balanceService.resetCashForClose(userId);
+        accountCloseFacade.resetCashForClose(userId, request.accountPin());
         return ResponseEntity.ok(new MessageResponse("보유 현금이 0원으로 처리되었습니다."));
     }
 

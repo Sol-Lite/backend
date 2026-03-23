@@ -22,6 +22,13 @@ public class AccountCloseFacade {
     private final UserService userService;
 
     @Transactional
+    public void resetCashForClose(Long userId, String accountPin) {
+        AccountService.CloseContext ctx = accountService.validateAndGetCloseContext(userId, accountPin);
+        orderService.validateNoPendingOrders(ctx.account().getAccountId(), ctx.round().getSimulationRoundId());
+        balanceService.resetCashForClose(userId);
+    }
+
+    @Transactional
     public void closeAccount(Long userId, String accountPin) {
         AccountService.CloseContext ctx = accountService.validateAndGetCloseContext(userId, accountPin);
         Long accountId = ctx.account().getAccountId();

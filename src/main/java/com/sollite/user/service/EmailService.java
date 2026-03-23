@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 이메일 발송을 담당하는 서비스 클래스.
@@ -56,14 +57,19 @@ public class EmailService {
             "return d",
             List.class);
 
-    // INCR + EXPIRE + 초과 검증을 원자적으로 실행하는 Lua 스크립트.
-    // ARGV[1] = TTL(초), ARGV[2] = 최대 허용 횟수
-    // 첫 INCR 시에만 EXPIRE 설정 → TTL 누락 방지
-    // 반환: -1 = 초과, 그 외 = 현재 횟수
-    private static final RedisScript<Long> RATE_LIMIT_SCRIPT = RedisScript.of(
+    // 현재 카운트만 읽는 스크립트 (발송 전 초과 여부 체크용)
+    // 반환: 현재 횟수 (키 없으면 0)
+    private static final RedisScript<Long> CHECK_RATE_SCRIPT = RedisScript.of(
+            "local c = redis.call('GET', KEYS[1]) " +
+            "if c == false then return 0 end " +
+            "return tonumber(c)",
+            Long.class);
+
+    // INCR + EXPIRE 원자 처리 (발송 성공 후 카운트 증가용)
+    // ARGV[1] = TTL(초) — 첫 INCR 시에만 EXPIRE 설정
+    private static final RedisScript<Long> INCR_RATE_SCRIPT = RedisScript.of(
             "local c = redis.call('INCR', KEYS[1]) " +
             "if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end " +
-            "if c > tonumber(ARGV[2]) then return -1 end " +
             "return c",
             Long.class);
 
@@ -87,6 +93,7 @@ public class EmailService {
         redisTemplate.expire("email_verify:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
 
         sendHtmlEmail(email, token);
+        incrementRateLimit(rateLimitKey);
         return token;
     }
 
@@ -111,14 +118,17 @@ public class EmailService {
      * @throws BusinessException 재발송 제한 초과 시
      */
     private void checkRateLimit(String rateLimitKey) {
-        Long result = redisTemplate.execute(
-                RATE_LIMIT_SCRIPT,
-                List.of(rateLimitKey),
-                String.valueOf(RATE_LIMIT_TTL * 60),   // TTL(초)
-                String.valueOf(RATE_LIMIT));             // 최대 허용 횟수
-        if (result != null && result == -1L) {
+        Long count = redisTemplate.execute(CHECK_RATE_SCRIPT, List.of(rateLimitKey));
+        if (count != null && count >= RATE_LIMIT) {
             throw new BusinessException(UserErrorCode.TOO_MANY_REQUESTS);
         }
+    }
+
+    private void incrementRateLimit(String rateLimitKey) {
+        redisTemplate.execute(
+                INCR_RATE_SCRIPT,
+                List.of(rateLimitKey),
+                String.valueOf(RATE_LIMIT_TTL * 60));
     }
 
     /**
@@ -143,6 +153,7 @@ public class EmailService {
         redisTemplate.expire("pw_reset:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
 
         sendPasswordResetHtmlEmail(email, token);
+        incrementRateLimit(rateLimitKey);
     }
 
     /**
@@ -174,6 +185,7 @@ public class EmailService {
         redisTemplate.expire("pin_reset:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
 
         sendPinResetHtmlEmail(email, token);
+        incrementRateLimit(rateLimitKey);
     }
 
     public Map<String, String> verifyPinResetToken(String token) {
