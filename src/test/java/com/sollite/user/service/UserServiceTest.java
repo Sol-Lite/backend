@@ -141,7 +141,7 @@ class UserServiceTest {
             given(userRepository.findByEmail("test@example.com")).willReturn(Optional.of(user));
             given(passwordEncoder.matches("Test1234!", "encodedPassword")).willReturn(true);
             given(jwtTokenProvider.createAccessToken(any(), eq("test@example.com"))).willReturn("access-token");
-            given(jwtTokenProvider.createRefreshToken(any())).willReturn("refresh-token");
+            given(jwtTokenProvider.createRefreshToken(any(), anyLong())).willReturn("refresh-token");
             given(jwtTokenProvider.getAccessTokenExpiry()).willReturn(1800000L);
             given(jwtTokenProvider.getRefreshTokenExpiry(false)).willReturn(604800000L);
             given(redisTemplate.opsForValue()).willReturn(valueOperations);

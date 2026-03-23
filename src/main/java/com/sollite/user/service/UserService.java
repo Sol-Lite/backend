@@ -102,9 +102,8 @@ public class UserService {
         loginAttemptService.recordSuccess(user);
 
         String accessToken = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
-        String refreshToken = jwtTokenProvider.createRefreshToken(user.getUserId());
-
         long refreshTokenExpiry = jwtTokenProvider.getRefreshTokenExpiry(request.isAutoLogin());
+        String refreshToken = jwtTokenProvider.createRefreshToken(user.getUserId(), refreshTokenExpiry);
         redisTemplate.opsForValue().set(
                 "refresh:" + user.getUserId(),
                 refreshToken,
@@ -166,12 +165,12 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
-        String newAccessToken  = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
-        String newRefreshToken = jwtTokenProvider.createRefreshToken(user.getUserId());
+        String newAccessToken = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
 
         // 기존 토큰의 남은 TTL을 그대로 유지하여 새 토큰 저장
         long remainingTtl = redisTemplate.getExpire("refresh:" + userId, TimeUnit.MILLISECONDS);
         long ttlForCookie = remainingTtl > 0 ? remainingTtl : jwtTokenProvider.getRefreshTokenExpiry(false);
+        String newRefreshToken = jwtTokenProvider.createRefreshToken(user.getUserId(), ttlForCookie);
         redisTemplate.opsForValue().set(
                 "refresh:" + userId,
                 newRefreshToken,

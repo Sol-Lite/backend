@@ -59,17 +59,18 @@ public class JwtTokenProvider {
     /**
      * Refresh Token을 생성한다.
      *
-     * @param userId 사용자 ID
-     * @return 서명된 JWT Refresh Token 문자열 (7일 유효)
+     * @param userId    사용자 ID
+     * @param expiryMs  토큰 유효시간 (밀리초) — 로그인 시 autoLogin 여부에 따라, 갱신 시 남은 TTL로 전달
+     * @return 서명된 JWT Refresh Token 문자열
      */
-    public String createRefreshToken(Long userId) {
+    public String createRefreshToken(Long userId, long expiryMs) {
         Date now = new Date();
         return Jwts.builder()
-                .subject(String.valueOf(userId))      // 토큰의 주체(subject)로 userId 설정
-                .issuedAt(now)                        // 발급 시간 설정
-                .expiration(new Date(now.getTime() + refreshTokenExpiry))  // 만료 시간 설정 (현재 + 7일)
-                .signWith(key)                        // HMAC-SHA256으로 서명
-                .compact();                           // JWT 문자열로 압축 및 반환
+                .subject(String.valueOf(userId))
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + expiryMs))
+                .signWith(key)
+                .compact();
     }
 
     /**
