@@ -41,7 +41,7 @@ public class WidgetLayout {
     private Integer height;
 
     @Lob
-    @Column(name = "config_json")
+    @Column(name = "config_json", columnDefinition = "CLOB")
     private String configJson;
 
     @CreationTimestamp

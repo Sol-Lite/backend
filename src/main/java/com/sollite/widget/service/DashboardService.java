@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @RequiredArgsConstructor
@@ -26,17 +27,18 @@ public class DashboardService {
 
     @Transactional
     public List<DashboardPageResponse> saveMyDashboards(Long userId, DashboardSaveRequest request) {
-        List<Dashboard> existing = dashboardRepository.findAllByUserIdOrderByPageOrder(userId);
-        dashboardRepository.deleteAll(existing);
+        dashboardRepository.deleteAllByUserId(userId);
         dashboardRepository.flush();
 
+        AtomicInteger index = new AtomicInteger(0);
         List<Dashboard> toSave = request.pages().stream()
                 .map(page -> {
+                    boolean isFirst = index.getAndIncrement() == 0;
                     Dashboard dashboard = Dashboard.builder()
                             .userId(userId)
                             .dashboardName(page.name())
                             .pageOrder(page.pageOrder())
-                            .defaultYn(page.pageOrder() == 1 ? "Y" : "N")
+                            .defaultYn(isFirst ? "Y" : "N")
                             .build();
 
                     page.widgets().forEach(w -> dashboard.addWidgetLayout(

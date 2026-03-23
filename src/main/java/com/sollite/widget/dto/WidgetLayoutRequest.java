@@ -8,10 +8,10 @@ public record WidgetLayoutRequest(
         String widgetType,
 
         @Min(value = 1, message = "positionX는 1 이상이어야 합니다")
-        int positionX,
+        int positionX,  // 1-based (CSS grid 좌표 체계와 동일)
 
         @Min(value = 1, message = "positionY는 1 이상이어야 합니다")
-        int positionY,
+        int positionY,  // 1-based (CSS grid 좌표 체계와 동일)
 
         @Min(value = 1, message = "width는 1 이상이어야 합니다")
         int width,
