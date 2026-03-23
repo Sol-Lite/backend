@@ -7,6 +7,7 @@ import com.sollite.account.dto.AccountResetResponse;
 import com.sollite.account.dto.PinChangeRequest;
 import com.sollite.account.dto.PinResetConfirmRequest;
 import com.sollite.account.dto.PinVerifyRequest;
+import com.sollite.account.service.AccountCloseFacade;
 import com.sollite.account.service.AccountService;
 import com.sollite.global.util.AuthUtil;
 import com.sollite.user.dto.MessageResponse;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AccountController {
 
     private final AccountService accountService;
+    private final AccountCloseFacade accountCloseFacade;
 
     /**
      * 현재 로그인한 사용자의 계좌 정보를 조회합니다.
@@ -133,7 +135,7 @@ public class AccountController {
             Authentication authentication,
             @Valid @RequestBody AccountCloseRequest request) {
         Long userId = AuthUtil.getUserId(authentication);
-        accountService.closeAccount(userId, request.accountPin());
+        accountCloseFacade.closeAccount(userId, request.accountPin());
         return ResponseEntity.ok(new MessageResponse("계좌가 폐쇄되었습니다."));
     }
 }

@@ -32,4 +32,24 @@ public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
     default Optional<String> findFirstExchangeCodeByStockCode(String stockCode) {
         return findExchangeCodesByStockCode(stockCode).stream().findFirst();
     }
+
+    @Query("""
+            SELECT i FROM Instrument i
+            WHERE i.activeYn = 'Y'
+              AND UPPER(i.stockCode) = UPPER(:stockCode)
+              AND i.marketType = :marketType
+            """)
+    Optional<Instrument> findByStockCodeAndMarketType(
+            @Param("stockCode") String stockCode,
+            @Param("marketType") String marketType);
+
+    @Query("""
+            SELECT i FROM Instrument i
+            WHERE i.activeYn = 'Y'
+              AND UPPER(i.stockCode) = UPPER(:stockCode)
+              AND i.marketType IN :marketTypes
+            """)
+    Optional<Instrument> findByStockCodeAndMarketTypeIn(
+            @Param("stockCode") String stockCode,
+            @Param("marketTypes") List<String> marketTypes);
 }
