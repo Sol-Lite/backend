@@ -13,7 +13,7 @@ public interface DashboardRepository extends JpaRepository<Dashboard, Long> {
     @Query("SELECT DISTINCT d FROM Dashboard d LEFT JOIN FETCH d.widgetLayouts WHERE d.userId = :userId ORDER BY d.pageOrder")
     List<Dashboard> findAllByUserIdWithWidgets(@Param("userId") Long userId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("DELETE FROM Dashboard d WHERE d.userId = :userId")
     void deleteAllByUserId(@Param("userId") Long userId);
 }
