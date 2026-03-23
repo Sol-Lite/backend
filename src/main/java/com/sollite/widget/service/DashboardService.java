@@ -1,16 +1,19 @@
 package com.sollite.widget.service;
 
+import com.sollite.global.exception.BusinessException;
 import com.sollite.widget.domain.entity.Dashboard;
 import com.sollite.widget.domain.entity.WidgetLayout;
 import com.sollite.widget.domain.repository.DashboardRepository;
+import com.sollite.widget.dto.DashboardPageRequest;
 import com.sollite.widget.dto.DashboardPageResponse;
 import com.sollite.widget.dto.DashboardSaveRequest;
+import com.sollite.widget.exception.WidgetErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 @Service
 @RequiredArgsConstructor
@@ -27,18 +30,26 @@ public class DashboardService {
 
     @Transactional
     public List<DashboardPageResponse> saveMyDashboards(Long userId, DashboardSaveRequest request) {
-        dashboardRepository.deleteAllByUserId(userId);
-        dashboardRepository.flush();
+        List<DashboardPageRequest> pages = request.pages();
 
-        AtomicInteger index = new AtomicInteger(0);
-        List<Dashboard> toSave = request.pages().stream()
-                .map(page -> {
-                    boolean isFirst = index.getAndIncrement() == 0;
+        long distinctCount = pages.stream()
+                .mapToInt(DashboardPageRequest::pageOrder)
+                .distinct()
+                .count();
+        if (distinctCount != pages.size()) {
+            throw new BusinessException(WidgetErrorCode.DUPLICATE_PAGE_ORDER);
+        }
+
+        dashboardRepository.deleteAllByUserId(userId);
+
+        List<Dashboard> toSave = IntStream.range(0, pages.size())
+                .mapToObj(i -> {
+                    DashboardPageRequest page = pages.get(i);
                     Dashboard dashboard = Dashboard.builder()
                             .userId(userId)
                             .dashboardName(page.name())
                             .pageOrder(page.pageOrder())
-                            .defaultYn(isFirst ? "Y" : "N")
+                            .defaultYn(i == 0 ? "Y" : "N")
                             .build();
 
                     page.widgets().forEach(w -> dashboard.addWidgetLayout(
