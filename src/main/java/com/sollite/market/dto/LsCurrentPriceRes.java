@@ -9,6 +9,7 @@ public record LsCurrentPriceRes(
             int price,       // 현재가
             String diff,     // 등락율 (문자열)
             int change,      // 전일대비 변동금액
-            long volume      // 누적거래량
+            long volume,     // 누적거래량
+            String listdate  // 상장일 (yyyyMMdd)
     ) {}
 }
