@@ -12,16 +12,20 @@ import com.sollite.market.dto.OrderbookResponse;
 import com.sollite.market.dto.StockRankingItem;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface MarketService {
     CurrentPriceResponse getCurrentPrice(String stockCode);
+    CurrentPriceResponse getCurrentPriceFresh(String stockCode);
     DailyPriceResponse getDailyPrice(String stockCode, LocalDate date);
     ChartResponse getChart(String stockCode, ChartPeriod period, LocalDate startDate, LocalDate endDate);
+    ChartResponse getChartHistory(String stockCode, ChartPeriod period, LocalDate before, int limit);
     MinuteChartResponse getMinuteChart(String stockCode, int ncnt);
+    MinuteChartResponse getMinuteChartHistory(String stockCode, int ncnt, LocalDateTime before, int limit);
     FinanceResponse getFinance(String stockCode);
     OpinionResponse getOpinion(String stockCode);
-    InvestorResponse getInvestor(String stockCode);
+    List<InvestorResponse> getInvestor(String stockCode);
     OrderbookResponse getOrderbook(String stockCode);
     List<StockRankingItem> getRanking(String type, String market);
 }
