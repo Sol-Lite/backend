@@ -9,6 +9,7 @@ import com.sollite.market.dto.FinanceResponse;
 import com.sollite.market.dto.OpinionResponse;
 import com.sollite.market.dto.InvestorResponse;
 import com.sollite.market.dto.OrderbookResponse;
+import com.sollite.market.dto.StockInfoResponse;
 import com.sollite.market.dto.StockRankingItem;
 
 import java.time.LocalDate;
@@ -28,4 +29,5 @@ public interface MarketService {
     List<InvestorResponse> getInvestor(String stockCode);
     OrderbookResponse getOrderbook(String stockCode);
     List<StockRankingItem> getRanking(String type, String market);
+    StockInfoResponse getStockInfo(String stockCode);
 }
