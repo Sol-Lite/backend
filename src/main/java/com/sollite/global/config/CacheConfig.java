@@ -48,12 +48,11 @@ public class CacheConfig {
                 // 국내주식
                 Map.entry("market:price",        base.entryTtl(Duration.ofSeconds(5))),
                 Map.entry("market:orderbook",    base.entryTtl(Duration.ofSeconds(5))),
-                Map.entry("market:minute-chart", base.entryTtl(Duration.ofSeconds(30))),
-                Map.entry("market:chart",        base.entryTtl(Duration.ofMinutes(5))),
                 Map.entry("market:daily",        base.entryTtl(Duration.ofMinutes(5))),
                 Map.entry("market:finance",      base.entryTtl(Duration.ofHours(1))),
                 Map.entry("market:opinion",      base.entryTtl(Duration.ofHours(1))),
                 Map.entry("market:investor",     base.entryTtl(Duration.ofHours(1))),
+                Map.entry("market:indices",      base.entryTtl(Duration.ofSeconds(3))),
                 // 국내주식 순위
                 Map.entry("market:ranking",          base.entryTtl(Duration.ofSeconds(30))),
                 // 해외주식

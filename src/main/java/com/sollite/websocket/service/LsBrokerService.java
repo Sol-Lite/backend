@@ -46,6 +46,8 @@ public class LsBrokerService {
 
     private static final String INDEX_SNAPSHOT_PREFIX = "index:snapshot:";
     private static final Duration INDEX_SNAPSHOT_TTL = Duration.ofHours(48);
+    private static final String CURRENCY_SNAPSHOT_PREFIX = "currency:snapshot:";
+    private static final Duration CURRENCY_SNAPSHOT_TTL = Duration.ofHours(48);
 
     @Value("${ls.ws.url}")
     private String lsWsUrl;
@@ -83,9 +85,10 @@ public class LsBrokerService {
     // 항상 유지할 영구 구독 (지수)
     private static final Set<String> PERMANENT_SUBSCRIPTIONS = Set.of(
             "IJ_:001",
-            "IJ_:101",
+            "IJ_:301",
             "MK2:SPI@SPX",
-            "MK2:NAS@IXIC"
+            "MK2:NAS@IXIC",
+            "CUR:USD"
     );
 
     @PostConstruct
@@ -290,6 +293,9 @@ public class LsBrokerService {
             if (topic.startsWith("/topic/index/")) {
                 redisTemplate.opsForValue().set(INDEX_SNAPSHOT_PREFIX + topic, bodyJson, INDEX_SNAPSHOT_TTL);
             }
+            if (topic.startsWith("/topic/currency/")) {
+                redisTemplate.opsForValue().set(CURRENCY_SNAPSHOT_PREFIX + topic, bodyJson, CURRENCY_SNAPSHOT_TTL);
+            }
 
             // 체결 틱(US3/GSC)인 경우 주문 매칭용 내부 이벤트 발행
             if ("US3".equals(trCd) || "GSC".equals(trCd)) {
@@ -458,9 +464,12 @@ public class LsBrokerService {
         String value = lastValues.get(topic);
         if (value == null && topic.startsWith("/topic/index/")) {
             value = redisTemplate.opsForValue().get(INDEX_SNAPSHOT_PREFIX + topic);
-            if (value != null) {
-                lastValues.put(topic, value); // 인메모리 복구
-            }
+        }
+        if (value == null && topic.startsWith("/topic/currency/")) {
+            value = redisTemplate.opsForValue().get(CURRENCY_SNAPSHOT_PREFIX + topic);
+        }
+        if (value != null) {
+            lastValues.put(topic, value); // 인메모리 복구
         }
         return value;
     }

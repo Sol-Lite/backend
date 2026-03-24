@@ -13,9 +13,14 @@ public record HoldingResponse(
         Long holdingQuantity,
         Long availableQuantity,
         BigDecimal avgBuyPrice,
-        BigDecimal avgBuyExchangeRate
+        BigDecimal avgBuyExchangeRate,
+        BigDecimal currentPrice
 ) {
     public static HoldingResponse from(Holding h) {
+        return from(h, null);
+    }
+
+    public static HoldingResponse from(Holding h, BigDecimal currentPrice) {
         return new HoldingResponse(
                 h.getHoldingId(),
                 h.getInstrument().getStockCode(),
@@ -25,7 +30,8 @@ public record HoldingResponse(
                 h.getHoldingQuantity(),
                 h.getAvailableQuantity(),
                 h.getAvgBuyPrice(),
-                h.getAvgBuyExchangeRate()
+                h.getAvgBuyExchangeRate(),
+                currentPrice
         );
     }
 }

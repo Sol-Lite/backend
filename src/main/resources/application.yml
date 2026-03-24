@@ -84,6 +84,20 @@ app:
     secure: ${APP_COOKIE_SECURE:true}
   mail:
     from: ${MAIL_FROM}
+  market:
+    backfill:
+      daily:
+        enabled: false
+        start-date: 2026-01-01
+        end-date:
+      minute:
+        enabled: false
+        lookback-trading-days: 3
+        end-date:
+        request-delay-ms: 300
+        target-delay-ms: 1000
+        rate-limit-retry-delay-ms: 5000
+        rate-limit-max-retries: 5
 
 # ── Logging ──
 logging:

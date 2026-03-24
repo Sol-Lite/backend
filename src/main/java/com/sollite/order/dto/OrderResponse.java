@@ -24,9 +24,14 @@ public record OrderResponse(
         Long filledQuantity,
         Long remainingQuantity,
         BigDecimal reservedAmount,
-        LocalDateTime requestedAt
+        LocalDateTime requestedAt,
+        LocalDateTime executedAt
 ) {
     public static OrderResponse from(Order order) {
+        return from(order, null);
+    }
+
+    public static OrderResponse from(Order order, LocalDateTime executedAt) {
         return new OrderResponse(
                 order.getOrderId(),
                 order.getOrderNo(),
@@ -42,7 +47,8 @@ public record OrderResponse(
                 order.getFilledQuantity(),
                 order.getRemainingQuantity(),
                 order.getReservedAmount(),
-                order.getRequestedAt()
+                order.getRequestedAt(),
+                executedAt
         );
     }
 }

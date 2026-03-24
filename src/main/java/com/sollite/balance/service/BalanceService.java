@@ -20,10 +20,12 @@ import com.sollite.balance.dto.HoldingResponse;
 import com.sollite.balance.dto.PortfolioItem;
 import com.sollite.balance.dto.PortfolioResponse;
 import com.sollite.balance.exception.BalanceErrorCode;
+import com.sollite.foreignmarket.dto.ForeignCurrentPriceResponse;
 import com.sollite.foreignmarket.service.ForeignStockMarketService;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.market.domain.entity.Instrument;
 import com.sollite.market.domain.repository.InstrumentRepository;
+import com.sollite.market.dto.CurrentPriceResponse;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -179,7 +181,9 @@ public class BalanceService {
         var pair = resolveAccountAndRound(userId);
         List<Holding> holdings = holdingRepository.findActiveHoldings(
                 pair.account.getAccountId(), pair.round.getSimulationRoundId(), DOMESTIC_MARKET_TYPES);
-        return holdings.stream().map(HoldingResponse::from).toList();
+        return holdings.stream()
+                .map(this::toDomesticHoldingResponse)
+                .toList();
     }
 
     /**
@@ -189,7 +193,49 @@ public class BalanceService {
         var pair = resolveAccountAndRound(userId);
         List<Holding> holdings = holdingRepository.findActiveHoldings(
                 pair.account.getAccountId(), pair.round.getSimulationRoundId(), OVERSEAS_MARKET_TYPES);
-        return holdings.stream().map(HoldingResponse::from).toList();
+        return holdings.stream()
+                .map(this::toOverseasHoldingResponse)
+                .toList();
+    }
+
+    private HoldingResponse toDomesticHoldingResponse(Holding holding) {
+        BigDecimal currentPrice = null;
+        try {
+            CurrentPriceResponse response = marketService.getCurrentPriceFresh(holding.getInstrument().getStockCode());
+            currentPrice = BigDecimal.valueOf(response.currentPrice());
+        } catch (Exception e) {
+            log.warn("국내 보유종목 현재가 조회 실패: stockCode={}", holding.getInstrument().getStockCode(), e);
+        }
+        return HoldingResponse.from(holding, currentPrice);
+    }
+
+    private HoldingResponse toOverseasHoldingResponse(Holding holding) {
+        BigDecimal currentPrice = null;
+        try {
+            String exchcd = toForeignExchcd(holding.getInstrument().getExchangeCode());
+            ForeignCurrentPriceResponse response = foreignStockMarketService.getCurrentPriceFresh(
+                    holding.getInstrument().getStockCode(),
+                    exchcd
+            );
+            currentPrice = BigDecimal.valueOf(response.price());
+        } catch (Exception e) {
+            log.warn("해외 보유종목 현재가 조회 실패: stockCode={}, exchangeCode={}",
+                    holding.getInstrument().getStockCode(),
+                    holding.getInstrument().getExchangeCode(),
+                    e);
+        }
+        return HoldingResponse.from(holding, currentPrice);
+    }
+
+    private String toForeignExchcd(String exchangeCode) {
+        if (exchangeCode == null) {
+            return "82";
+        }
+        return switch (exchangeCode) {
+            case "NYS", "AMS" -> "81";
+            case "NAS" -> "82";
+            default -> "82";
+        };
     }
 
     /**
@@ -289,10 +335,10 @@ public class BalanceService {
         try {
             if (List.of("NASDAQ", "NYSE", "AMEX").contains(instrument.getMarketType())) {
                 String exchcd = resolveExchangeCode(instrument.getExchangeCode());
-                var response = foreignStockMarketService.getCurrentPrice(instrument.getStockCode(), exchcd);
+                var response = foreignStockMarketService.getCurrentPriceFresh(instrument.getStockCode(), exchcd);
                 return BigDecimal.valueOf(response.price());
             } else {
-                var response = marketService.getCurrentPrice(instrument.getStockCode());
+                var response = marketService.getCurrentPriceFresh(instrument.getStockCode());
                 return BigDecimal.valueOf(response.currentPrice());
             }
         } catch (Exception e) {

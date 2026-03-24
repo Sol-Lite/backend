@@ -44,6 +44,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -281,7 +282,18 @@ public class OrderService {
                             account.getAccountId(), round.getSimulationRoundId(), orderStatus);
         }
 
-        return orders.stream().map(OrderResponse::from).toList();
+        List<Long> orderIds = orders.stream().map(Order::getOrderId).toList();
+        Map<Long, LocalDateTime> executedAtMap = executionRepository
+                .findByOrder_OrderIdIn(orderIds)
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        e -> e.getOrder().getOrderId(),
+                        e -> e.getExecutedAt()
+                ));
+
+        return orders.stream()
+                .map(o -> OrderResponse.from(o, executedAtMap.get(o.getOrderId())))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -545,10 +557,10 @@ public class OrderService {
         try {
             if (List.of("NASDAQ", "NYSE", "AMEX").contains(instrument.getMarketType())) {
                 String exchcd = resolveExchangeCode(instrument.getExchangeCode());
-                var response = foreignStockMarketService.getCurrentPrice(instrument.getStockCode(), exchcd);
+                var response = foreignStockMarketService.getCurrentPriceFresh(instrument.getStockCode(), exchcd);
                 return BigDecimal.valueOf(response.price());
             } else {
-                var response = marketService.getCurrentPrice(instrument.getStockCode());
+                var response = marketService.getCurrentPriceFresh(instrument.getStockCode());
                 return BigDecimal.valueOf(response.currentPrice());
             }
         } catch (Exception e) {
