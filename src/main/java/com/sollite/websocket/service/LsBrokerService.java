@@ -149,16 +149,11 @@ public class LsBrokerService {
             log.info("[SUBSCRIBE] 추가 구독자 → LS 등록 스킵 (이미 등록됨): {}", subscriptionKey);
         }
 
-        // 마지막 값 즉시 전송 (신규 구독자가 다음 틱까지 기다리지 않도록)
         String topicPrefix = TR_TOPIC_MAP.get(trCd);
-        if (topicPrefix != null) {
-            String last = lastValues.get(topicPrefix + key);
-            if (last != null) {
-                log.info("[SUBSCRIBE] lastValue 즉시 전송: topic={}", topicPrefix + key);
-                messagingTemplate.convertAndSend(topicPrefix + key, last);
-            } else {
-                log.info("[SUBSCRIBE] lastValue 없음 (첫 수신 대기): topic={}", topicPrefix + key);
-            }
+        if (topicPrefix != null && lastValues.containsKey(topicPrefix + key)) {
+            // lastValue를 토픽 전체에 재방송하면 기존 구독자도 동일 틱을 다시 받아
+            // 체결/차트가 중복 반영될 수 있다. 스냅샷은 REST/초기 조회 경로에 맡긴다.
+            log.info("[SUBSCRIBE] lastValue 보유 확인: topic={}, 신규 실시간 수신 대기", topicPrefix + key);
         }
     }
 
@@ -179,6 +174,10 @@ public class LsBrokerService {
         // 구독자 0 → LS에서 해제
         if (current <= 0) {
             subscriberCount.remove(subscriptionKey);
+            if (PERMANENT_SUBSCRIPTIONS.contains(subscriptionKey)) {
+                log.info("[UNSUBSCRIBE] 영구 구독 유지: {}", subscriptionKey);
+                return;
+            }
             if (connected.get()) {
                 log.info("[UNSUBSCRIBE] 구독자 0 → LS 해제: {}", subscriptionKey);
                 unregisterFromLs(trCd, key);
