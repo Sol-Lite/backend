@@ -226,9 +226,7 @@ public class BalanceService {
     }
 
     /**
-     * 총 평가자산 요약
-     * - 현금: 모든 통화의 totalAmount 합산 (KRW 기준)
-     * - 주식 평가: holdingQuantity × avgBuyPrice 합산 (매입금액 기준, 실시간 평가는 프론트에서)
+     * 총 평가자산 요약 — 현재가 기반 실시간 평가
      */
     public BalanceSummaryResponse getBalanceSummary(Long userId) {
         var pair = resolveAccountAndRound(userId);
@@ -237,28 +235,56 @@ public class BalanceService {
 
         List<CashBalance> cashBalances = cashBalanceRepository
                 .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId);
-
         BigDecimal totalCash = cashBalances.stream()
+                .filter(cb -> "KRW".equals(cb.getCurrencyCode()))
                 .map(CashBalance::getTotalAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         List<Holding> holdings = holdingRepository.findAllActiveHoldings(accountId, roundId);
-        BigDecimal totalStockEval = holdings.stream()
-                .map(h -> h.getAvgBuyPrice().multiply(BigDecimal.valueOf(h.getHoldingQuantity())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        Map<String, BigDecimal> priceMap = resolveHoldingPrices(holdings);
+
+        BigDecimal totalStockBuyAmount = BigDecimal.ZERO;
+        BigDecimal totalStockEvaluation = BigDecimal.ZERO;
+        for (Holding h : holdings) {
+            BigDecimal buyAmt = h.getAvgBuyPrice().multiply(BigDecimal.valueOf(h.getHoldingQuantity()));
+            BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
+            BigDecimal evalAmt = price != null
+                    ? price.multiply(BigDecimal.valueOf(h.getHoldingQuantity()))
+                    : buyAmt; // 현재가 없으면 매입금액으로 폴백
+            totalStockBuyAmount = totalStockBuyAmount.add(buyAmt);
+            totalStockEvaluation = totalStockEvaluation.add(evalAmt);
+        }
+
+        BigDecimal totalStockUnrealizedProfitLoss = totalStockEvaluation.subtract(totalStockBuyAmount);
+        BigDecimal totalStockUnrealizedProfitLossRate = totalStockBuyAmount.compareTo(BigDecimal.ZERO) > 0
+                ? totalStockUnrealizedProfitLoss.divide(totalStockBuyAmount, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        BigDecimal totalAssets = totalCash.add(totalStockEvaluation);
+        BigDecimal initialSeedAmount = pair.round.getInitialSeedAmount();
+        BigDecimal accountProfitLoss = totalAssets.subtract(initialSeedAmount);
+        BigDecimal accountProfitLossRate = initialSeedAmount.compareTo(BigDecimal.ZERO) > 0
+                ? accountProfitLoss.divide(initialSeedAmount, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
 
         return new BalanceSummaryResponse(
                 totalCash,
-                totalStockEval,
-                totalCash.add(totalStockEval),
+                totalStockBuyAmount,
+                totalStockEvaluation,
+                totalStockUnrealizedProfitLoss,
+                totalStockUnrealizedProfitLossRate,
+                totalAssets,
+                accountProfitLoss,
+                accountProfitLossRate,
                 cashBalances.stream().map(CashBalanceResponse::from).toList(),
                 holdings.size()
         );
     }
 
     /**
-     * 포트폴리오 파이차트 구성 비중
-     * - 현금 비중 + 종목별 비중 (매입금액 기준)
+     * 포트폴리오 파이차트 구성 비중 — 현재가 기반 실시간 평가
      */
     public PortfolioResponse getPortfolio(Long userId) {
         var pair = resolveAccountAndRound(userId);
@@ -268,37 +294,57 @@ public class BalanceService {
         List<CashBalance> cashBalances = cashBalanceRepository
                 .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId);
         BigDecimal totalCash = cashBalances.stream()
+                .filter(cb -> "KRW".equals(cb.getCurrencyCode()))
                 .map(CashBalance::getTotalAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         List<Holding> holdings = holdingRepository.findAllActiveHoldings(accountId, roundId);
-        BigDecimal totalStockEval = holdings.stream()
-                .map(h -> h.getAvgBuyPrice().multiply(BigDecimal.valueOf(h.getHoldingQuantity())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        Map<String, BigDecimal> priceMap = resolveHoldingPrices(holdings);
 
-        BigDecimal totalAssets = totalCash.add(totalStockEval);
+        BigDecimal totalStockEvaluation = BigDecimal.ZERO;
+        for (Holding h : holdings) {
+            BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
+            BigDecimal evalAmt = price != null
+                    ? price.multiply(BigDecimal.valueOf(h.getHoldingQuantity()))
+                    : h.getAvgBuyPrice().multiply(BigDecimal.valueOf(h.getHoldingQuantity()));
+            totalStockEvaluation = totalStockEvaluation.add(evalAmt);
+        }
+
+        BigDecimal totalAssets = totalCash.add(totalStockEvaluation);
 
         List<PortfolioItem> items = new ArrayList<>();
 
-        // 현금 항목
         if (totalCash.compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal cashWeight = totalAssets.compareTo(BigDecimal.ZERO) > 0
-                    ? totalCash.divide(totalAssets, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
+                    ? totalCash.divide(totalAssets, 4, RoundingMode.HALF_UP)
+                            .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
-            items.add(new PortfolioItem("현금", "CASH", totalCash, cashWeight));
+            items.add(new PortfolioItem("현금", "CASH", totalCash, cashWeight, null, null));
         }
 
-        // 종목별 항목
         for (Holding h : holdings) {
-            BigDecimal evalAmount = h.getAvgBuyPrice().multiply(BigDecimal.valueOf(h.getHoldingQuantity()));
+            BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
+            BigDecimal buyAmt = h.getAvgBuyPrice().multiply(BigDecimal.valueOf(h.getHoldingQuantity()));
+            BigDecimal evalAmt = price != null
+                    ? price.multiply(BigDecimal.valueOf(h.getHoldingQuantity()))
+                    : buyAmt;
             BigDecimal weight = totalAssets.compareTo(BigDecimal.ZERO) > 0
-                    ? evalAmount.divide(totalAssets, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
+                    ? evalAmt.divide(totalAssets, 4, RoundingMode.HALF_UP)
+                            .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
+            BigDecimal profitLoss = price != null ? evalAmt.subtract(buyAmt) : null;
+            BigDecimal profitLossRate = null;
+            if (profitLoss != null && buyAmt.compareTo(BigDecimal.ZERO) > 0) {
+                profitLossRate = profitLoss.divide(buyAmt, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP);
+            }
             items.add(new PortfolioItem(
                     h.getInstrument().getStockName(),
                     "STOCK",
-                    evalAmount,
-                    weight
+                    evalAmt,
+                    weight,
+                    profitLoss,
+                    profitLossRate
             ));
         }
 
@@ -316,6 +362,29 @@ public class BalanceService {
                 .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), RoundStatus.ACTIVE)
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
         return new AccountRound(account, round);
+    }
+
+    /**
+     * 보유 종목 목록의 현재가를 국내/해외 구분해서 한 번에 조회
+     * key = stockCode, value = currentPrice (조회 실패 시 key 없음)
+     */
+    private Map<String, BigDecimal> resolveHoldingPrices(List<Holding> holdings) {
+        List<String> domesticCodes = holdings.stream()
+                .filter(h -> DOMESTIC_MARKET_TYPES.contains(h.getInstrument().getMarketType()))
+                .map(h -> h.getInstrument().getStockCode())
+                .toList();
+
+        List<Map.Entry<String, String>> foreignPairs = holdings.stream()
+                .filter(h -> OVERSEAS_MARKET_TYPES.contains(h.getInstrument().getMarketType()))
+                .map(h -> Map.entry(
+                        h.getInstrument().getStockCode(),
+                        toForeignExchcd(h.getInstrument().getExchangeCode())))
+                .toList();
+
+        Map<String, BigDecimal> prices = new java.util.HashMap<>();
+        prices.putAll(priceLookupService.resolveDomesticPrices(domesticCodes));
+        prices.putAll(priceLookupService.resolveForeignPrices(foreignPairs));
+        return prices;
     }
 
     private BigDecimal fetchCurrentPrice(Instrument instrument) {

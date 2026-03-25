@@ -5,6 +5,8 @@ import java.math.BigDecimal;
 public record PortfolioItem(
         String label,
         String type,
-        BigDecimal value,
-        BigDecimal weight
+        BigDecimal evalAmount,
+        BigDecimal weight,
+        BigDecimal unrealizedProfitLoss,
+        BigDecimal unrealizedProfitLossRate
 ) {}
