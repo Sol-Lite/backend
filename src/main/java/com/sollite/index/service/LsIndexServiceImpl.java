@@ -25,6 +25,10 @@ class LsIndexServiceImpl implements IndexService {
     private final LsTokenService tokenService;
 
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
+    private static final long T3521_MIN_INTERVAL_MS = 1100;
+    private static final long T1511_MIN_INTERVAL_MS = 1100;
+    private volatile long lastT3521CallMs = 0;
+    private volatile long lastT1511CallMs = 0;
 
     private static final List<IndexMeta> INDICES = List.of(
             new IndexMeta("001",      "KOSPI",   "/topic/index/domestic/001",     "domestic", null),
@@ -40,8 +44,8 @@ class LsIndexServiceImpl implements IndexService {
         List<IndexResponse> result = new ArrayList<>();
         for (IndexMeta meta : INDICES) {
             IndexResponse res = switch (meta.type()) {
-                case "domestic" -> firstNonNull(fromT1511(meta), fromLastValue(meta));
-                case "foreign" -> firstNonNull(fromT3521(meta), fromLastValue(meta));
+                case "domestic" -> firstNonNull(fromLastValue(meta), fromT1511(meta));
+                case "foreign" -> firstNonNull(fromLastValue(meta), fromT3521(meta));
                 case "currency" -> fromLastValue(meta);
                 default -> null;
             };
@@ -100,6 +104,12 @@ class LsIndexServiceImpl implements IndexService {
 
     private IndexResponse fromT3521(IndexMeta meta) {
         try {
+            long elapsed = System.currentTimeMillis() - lastT3521CallMs;
+            if (lastT3521CallMs > 0 && elapsed < T3521_MIN_INTERVAL_MS) {
+                Thread.sleep(T3521_MIN_INTERVAL_MS - elapsed);
+            }
+            lastT3521CallMs = System.currentTimeMillis();
+
             String token = tokenService.getAccessToken();
             record InBlock(String kind, String symbol) {}
             record Req(InBlock t3521InBlock) {}
@@ -107,8 +117,10 @@ class LsIndexServiceImpl implements IndexService {
             String raw = lsWebClient.post()
                     .uri("/stock/investinfo")
                     .header("authorization", "Bearer " + token)
+                    .header("content-type", "application/json; charset=utf-8")
                     .header("tr_cd", "t3521")
                     .header("tr_cont", "N")
+                    .header("tr_cont_key", "")
                     .header("mac_address", DUMMY_MAC)
                     .bodyValue(new Req(new InBlock("S", meta.t3521Symbol())))
                     .retrieve()
@@ -134,6 +146,9 @@ class LsIndexServiceImpl implements IndexService {
                     normalizeSignedValue(sign, b.path("change").asText()),
                     normalizeSignedValue(sign, b.path("diff").asText())
             );
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
         } catch (Exception e) {
             log.warn("t3521 폴백 실패: symbol={}, {}", meta.t3521Symbol(), e.getMessage());
             return null;
@@ -142,6 +157,12 @@ class LsIndexServiceImpl implements IndexService {
 
     private IndexResponse fromT1511(IndexMeta meta) {
         try {
+            long elapsed = System.currentTimeMillis() - lastT1511CallMs;
+            if (lastT1511CallMs > 0 && elapsed < T1511_MIN_INTERVAL_MS) {
+                Thread.sleep(T1511_MIN_INTERVAL_MS - elapsed);
+            }
+            lastT1511CallMs = System.currentTimeMillis();
+
             String token = tokenService.getAccessToken();
             record InBlock(String upcode) {}
             record Req(InBlock t1511InBlock) {}
@@ -176,6 +197,9 @@ class LsIndexServiceImpl implements IndexService {
                     normalizeSignedValue(sign, b.path("change").asText()),
                     normalizeSignedValue(sign, b.path("diffjisu").asText())
             );
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
         } catch (Exception e) {
             log.warn("t1511 폴백 실패: upcode={}, {}", meta.code(), e.getMessage());
             return null;
