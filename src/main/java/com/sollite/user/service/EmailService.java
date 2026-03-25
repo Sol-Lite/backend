@@ -40,9 +40,9 @@ public class EmailService {
     @Value("${app.mail.from}")
     private String mailFrom;
 
-    private static final long VERIFY_TOKEN_TTL = 30;               // 30분
-    private static final int RATE_LIMIT = 3;                       // 10분 내 3회
-    private static final long RATE_LIMIT_TTL = 10;                 // 10분
+    private static final long VERIFY_TOKEN_TTL = 10;               // 10분
+    private static final int RATE_LIMIT = 3;                       // 5분 내 3회
+    private static final long RATE_LIMIT_TTL = 5;                  // 5분
     private static final String EMAIL_VERIFY_LIMIT = "email_verify_limit:";
     private static final String PW_RESET_LIMIT     = "pw_reset_limit:";
     private static final String PIN_RESET_LIMIT    = "pin_reset_limit:";
