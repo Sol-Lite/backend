@@ -7,6 +7,7 @@ import com.sollite.foreignmarket.exception.ForeignStockErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -16,10 +17,14 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -34,9 +39,21 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private static final String INITIAL_TR_CONT_KEY = "";
     private static final String DEFAULT_DELAY_GB = "R";
     private static final String COMPRESSED_YES = "Y";
+    private static final String COMPRESSED_NO = "N";
     private static final int DEFAULT_CHART_QRYCNT = 500;
+    private static final int DEFAULT_NON_COMPRESSED_CHART_QRYCNT = 5;
+    private static final int FOREIGN_SESSION_MINUTES = 390;
+    private static final int MINUTE_CHART_BUFFER_POINTS = 10;
+    private static final int MAX_MINUTE_CHART_REQUESTS = 100;
+    private static final String RATE_LIMIT_CODE = "IGW00201";
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HHmmss");
+    @Value("${app.foreign.market.minute-chart.request-delay-ms:300}")
+    private long minuteChartRequestDelayMs;
+    @Value("${app.foreign.market.minute-chart.rate-limit-retry-delay-ms:1500}")
+    private long minuteChartRateLimitRetryDelayMs;
+    @Value("${app.foreign.market.minute-chart.rate-limit-max-retries:4}")
+    private int minuteChartRateLimitMaxRetries;
 
     @Override
     @Cacheable(
@@ -506,64 +523,31 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     @Override
     @Cacheable(
             cacheNames = "foreign:minute-chart",
-            key = "T(com.sollite.foreignmarket.service.ForeignCacheKeys).minuteChart(#stockCode, #exchcd, #nmin)"
+            key = "T(com.sollite.foreignmarket.service.ForeignCacheKeys).minuteChart(#stockCode, #exchcd, #nmin)",
+            sync = true
     )
     public ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin) {
         return getMinuteChart(stockCode, exchcd, nmin, false);
     }
 
     private ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin, boolean isRetry) {
-        String token = tokenService.getAccessToken();
         try {
             String normalizedStockCode = normalizeStockCode(stockCode);
             String normalizedExchcd = normalizeExchangeCode(exchcd);
             String keysymbol = buildKeysymbol(normalizedStockCode, normalizedExchcd);
-            LocalDate today = LocalDate.now();
-            DateTimeFormatter fmt = DATE_FMT;
-            LsG3203Req requestBody = new LsG3203Req(
-                    new LsG3203Req.G3203InBlock(
-                            DEFAULT_DELAY_GB,
-                            keysymbol,
-                            normalizedExchcd,
-                            normalizedStockCode,
-                            nmin,
-                            DEFAULT_CHART_QRYCNT,
-                            COMPRESSED_YES,
-                            today.minusDays(7).format(fmt),
-                            "",
-                            "",
-                            ""
-                    )
-            );
-
-            String raw = executeLsRequest(
-                    "/overseas-stock/chart",
-                    "g3203",
-                    token,
+            List<LsG3203Res.G3203OutBlock1> rawList = fetchMinuteChartPages(
                     stockCode,
                     exchcd,
                     normalizedExchcd,
                     normalizedStockCode,
                     keysymbol,
-                    requestBody
+                    nmin
             );
-            LsG3203Res lsRes = objectMapper.readValue(raw, LsG3203Res.class);
-
-            if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
-                log.warn("LS API 해외주식 분차트 조회 실패: trCd=g3203, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
-                        stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
-                        lsRes != null ? lsRes.rspCd() : "NULL",
-                        lsRes != null ? lsRes.rspMsg() : "NULL",
-                        raw);
-                throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
-            }
-
-            List<LsG3203Res.G3203OutBlock1> rawList = lsRes.g3203OutBlock1() != null ? lsRes.g3203OutBlock1() : List.of();
 
             List<ForeignMinuteChartResponse.MinuteChartDataPoint> dataPoints = rawList.stream()
                     .map(item -> {
                         LocalDateTime dateTime = LocalDateTime.of(
-                                LocalDate.parse(item.date(), fmt),
+                                LocalDate.parse(item.date(), DATE_FMT),
                                 java.time.LocalTime.parse(item.loctime(), TIME_FMT)
                         );
                         return new ForeignMinuteChartResponse.MinuteChartDataPoint(
@@ -594,6 +578,175 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             log.error("해외주식 분차트 조회 중 예외 발생: stockCode={}", stockCode, e);
             throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
         }
+    }
+
+    private List<LsG3203Res.G3203OutBlock1> fetchMinuteChartPages(
+            String stockCode,
+            String exchcd,
+            String normalizedExchcd,
+            String normalizedStockCode,
+            String keysymbol,
+            int nmin
+    ) throws Exception {
+        LocalDate today = LocalDate.now();
+        Map<LocalDateTime, LsG3203Res.G3203OutBlock1> deduplicated = new LinkedHashMap<>();
+        String ctsDate = "";
+        String ctsTime = "";
+        String trContKey = INITIAL_TR_CONT_KEY;
+        boolean continued = false;
+        int maxPoints = calculateMinuteChartTargetPoints(nmin);
+        int requestCount = 0;
+
+        while (deduplicated.size() < maxPoints && requestCount < MAX_MINUTE_CHART_REQUESTS) {
+            requestCount++;
+            LsG3203Req requestBody = new LsG3203Req(
+                    new LsG3203Req.G3203InBlock(
+                            DEFAULT_DELAY_GB,
+                            keysymbol,
+                            normalizedExchcd,
+                            normalizedStockCode,
+                            nmin,
+                            DEFAULT_NON_COMPRESSED_CHART_QRYCNT,
+                            COMPRESSED_NO,
+                            today.minusDays(7).format(DATE_FMT),
+                            "",
+                            ctsDate,
+                            ctsTime
+                    )
+            );
+
+            LsRawResponse lsRawResponse = fetchMinuteChartPage(
+                    stockCode,
+                    exchcd,
+                    normalizedExchcd,
+                    normalizedStockCode,
+                    keysymbol,
+                    requestBody,
+                    continued,
+                    trContKey,
+                    0,
+                    false
+            );
+            LsG3203Res lsRes = objectMapper.readValue(lsRawResponse.raw(), LsG3203Res.class);
+
+            if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
+                log.warn("LS API 해외주식 분차트 조회 실패: trCd=g3203, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
+                        stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
+                        lsRes != null ? lsRes.rspCd() : "NULL",
+                        lsRes != null ? lsRes.rspMsg() : "NULL",
+                        lsRawResponse.raw());
+                throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
+            }
+
+            List<LsG3203Res.G3203OutBlock1> pageItems = lsRes.g3203OutBlock1() != null ? lsRes.g3203OutBlock1() : List.of();
+            for (LsG3203Res.G3203OutBlock1 item : pageItems) {
+                deduplicated.putIfAbsent(parseMinuteChartDateTime(item), item);
+            }
+
+            String nextCtsDate = lsRes.g3203OutBlock() != null ? normalizeContinuationValue(lsRes.g3203OutBlock().ctsDate()) : "";
+            String nextCtsTime = lsRes.g3203OutBlock() != null ? normalizeContinuationValue(lsRes.g3203OutBlock().ctsTime()) : "";
+            if (pageItems.isEmpty() || nextCtsDate.isBlank() || nextCtsTime.isBlank()) {
+                break;
+            }
+            if (nextCtsDate.equals(ctsDate) && nextCtsTime.equals(ctsTime)) {
+                break;
+            }
+
+            ctsDate = nextCtsDate;
+            ctsTime = nextCtsTime;
+            String nextTrContKey = normalizeContinuationValue(lsRawResponse.trContKey());
+            if (!nextTrContKey.isBlank()) {
+                trContKey = nextTrContKey;
+            }
+            continued = true;
+            sleepQuietly(minuteChartRequestDelayMs);
+        }
+
+        return deduplicated.values().stream()
+                .sorted(Comparator.comparing(this::parseMinuteChartDateTime))
+                .toList();
+    }
+
+    private LsRawResponse fetchMinuteChartPage(
+            String stockCode,
+            String exchcd,
+            String normalizedExchcd,
+            String normalizedStockCode,
+            String keysymbol,
+            LsG3203Req requestBody,
+            boolean continued,
+            String trContKey,
+            int rateLimitRetryCount,
+            boolean isRetry
+    ) {
+        try {
+            return executeLsRequestWithMetadata(
+                    "/overseas-stock/chart",
+                    "g3203",
+                    tokenService.getAccessToken(),
+                    stockCode,
+                    exchcd,
+                    normalizedExchcd,
+                    normalizedStockCode,
+                    keysymbol,
+                    requestBody,
+                    continued ? "Y" : "N",
+                    trContKey
+            );
+        } catch (WebClientResponseException e) {
+            if (!isRetry && e.getStatusCode().value() == 401) {
+                log.warn("토큰 만료 감지 (401), 재발급 후 해외주식 분차트 재시도: stockCode={}", stockCode);
+                tokenService.invalidateToken();
+                return fetchMinuteChartPage(
+                        stockCode,
+                        exchcd,
+                        normalizedExchcd,
+                        normalizedStockCode,
+                        keysymbol,
+                        requestBody,
+                        continued,
+                        trContKey,
+                        rateLimitRetryCount,
+                        true
+                );
+            }
+            if (isRateLimitError(e) && rateLimitRetryCount < minuteChartRateLimitMaxRetries) {
+                long retryDelayMs = minuteChartRateLimitRetryDelayMs * (rateLimitRetryCount + 1L);
+                log.warn("[ForeignMinuteChart] LS rate limit reached. stockCode={}, retry={}/{}, delayMs={}",
+                        stockCode, rateLimitRetryCount + 1, minuteChartRateLimitMaxRetries, retryDelayMs);
+                sleepQuietly(retryDelayMs);
+                return fetchMinuteChartPage(
+                        stockCode,
+                        exchcd,
+                        normalizedExchcd,
+                        normalizedStockCode,
+                        keysymbol,
+                        requestBody,
+                        continued,
+                        trContKey,
+                        rateLimitRetryCount + 1,
+                        isRetry
+                );
+            }
+            log.warn("[REST-RES] trCd=g3203, stockCode={}, status={} (비정상), raw={}",
+                    stockCode, e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw e;
+        }
+    }
+
+    private int calculateMinuteChartTargetPoints(int nmin) {
+        int normalizedInterval = Math.max(nmin, 1);
+        int sessionBars = (int) Math.ceil((double) FOREIGN_SESSION_MINUTES / normalizedInterval);
+        return Math.min(DEFAULT_CHART_QRYCNT, sessionBars + MINUTE_CHART_BUFFER_POINTS);
+    }
+
+    private LocalDateTime parseMinuteChartDateTime(LsG3203Res.G3203OutBlock1 item) {
+        return LocalDate.parse(item.date(), DATE_FMT)
+                .atTime(LocalTime.parse(item.loctime(), TIME_FMT));
+    }
+
+    private String normalizeContinuationValue(String value) {
+        return value == null ? "" : value.trim();
     }
 
     @Override
@@ -715,9 +868,38 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             String keysymbol,
             Object requestBody
     ) {
+        return executeLsRequest(
+                uri,
+                trCd,
+                token,
+                stockCode,
+                originalExchcd,
+                normalizedExchcd,
+                normalizedStockCode,
+                keysymbol,
+                requestBody,
+                "N",
+                INITIAL_TR_CONT_KEY
+        );
+    }
+
+    private String executeLsRequest(
+            String uri,
+            String trCd,
+            String token,
+            String stockCode,
+            String originalExchcd,
+            String normalizedExchcd,
+            String normalizedStockCode,
+            String keysymbol,
+            Object requestBody,
+            String trCont,
+            String trContKey
+    ) {
         String requestJson = toJson(requestBody);
-        log.info("[REST-REQ] trCd={}, stockCode={}, exchcd={}, keysymbol={}, macAddress={}, body={}",
+        log.info("[REST-REQ] trCd={}, stockCode={}, exchcd={}, keysymbol={}, trCont={}, trContKey={}, macAddress={}, body={}",
                 trCd, stockCode, normalizedExchcd, keysymbol,
+                trCont, trContKey,
                 hasMacAddress() ? "설정됨" : "미설정(헤더생략)",
                 requestJson);
 
@@ -726,8 +908,8 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
                 .header("authorization", "Bearer " + token)
                 .header("content-type", "application/json; charset=utf-8")
                 .header("tr_cd", trCd)
-                .header("tr_cont", "N")
-                .header("tr_cont_key", INITIAL_TR_CONT_KEY);
+                .header("tr_cont", trCont)
+                .header("tr_cont_key", trContKey);
 
         if (hasMacAddress()) {
             requestSpec = requestSpec.header("mac_address", normalizedMacAddress());
@@ -764,6 +946,59 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
         }
     }
 
+    private LsRawResponse executeLsRequestWithMetadata(
+            String uri,
+            String trCd,
+            String token,
+            String stockCode,
+            String originalExchcd,
+            String normalizedExchcd,
+            String normalizedStockCode,
+            String keysymbol,
+            Object requestBody,
+            String trCont,
+            String trContKey
+    ) {
+        String requestJson = toJson(requestBody);
+        log.info("[REST-REQ] trCd={}, stockCode={}, exchcd={}, keysymbol={}, trCont={}, trContKey={}, macAddress={}, body={}",
+                trCd, stockCode, normalizedExchcd, keysymbol,
+                trCont, trContKey,
+                hasMacAddress() ? "설정됨" : "미설정(헤더생략)",
+                requestJson);
+
+        WebClient.RequestBodySpec requestSpec = lsWebClient.post()
+                .uri(uri)
+                .header("authorization", "Bearer " + token)
+                .header("content-type", "application/json; charset=utf-8")
+                .header("tr_cd", trCd)
+                .header("tr_cont", trCont)
+                .header("tr_cont_key", trContKey);
+
+        if (hasMacAddress()) {
+            requestSpec = requestSpec.header("mac_address", normalizedMacAddress());
+        }
+
+        ResponseEntity<String> response = requestSpec.bodyValue(requestBody)
+                .retrieve()
+                .toEntity(String.class)
+                .block();
+
+        if (response == null) {
+            throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
+        }
+
+        String raw = response.getBody() == null ? "" : response.getBody();
+        String responseTrCont = normalizeContinuationValue(firstHeader(response.getHeaders(), "tr_cont"));
+        String responseTrContKey = normalizeContinuationValue(firstHeader(response.getHeaders(), "tr_cont_key"));
+        int status = response.getStatusCode().value();
+
+        log.info("[REST-RES] trCd={}, stockCode={}, status={}, rspCd={}, responseTrCont={}, responseTrContKey={}, raw={}",
+                trCd, stockCode, status, extractRspCd(raw), responseTrCont, responseTrContKey,
+                raw.length() > 300 ? raw.substring(0, 300) + "..." : raw);
+
+        return new LsRawResponse(raw, responseTrCont, responseTrContKey);
+    }
+
     private String toJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -776,6 +1011,29 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private String firstHeader(org.springframework.http.HttpHeaders headers, String name) {
         return headers.getFirst(name);
     }
+
+    private boolean isRateLimitError(WebClientResponseException e) {
+        String body = e.getResponseBodyAsString();
+        return body != null && body.contains(RATE_LIMIT_CODE);
+    }
+
+    private void sleepQuietly(long millis) {
+        if (millis <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Foreign minute chart request was interrupted.", ie);
+        }
+    }
+
+    private record LsRawResponse(
+            String raw,
+            String trCont,
+            String trContKey
+    ) {}
 
     private boolean hasMacAddress() {
         return StringUtils.hasText(configuredMacAddress);

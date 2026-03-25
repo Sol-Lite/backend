@@ -24,7 +24,7 @@ public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
             WHERE active_yn = 'Y'
               AND UPPER(stock_code) = UPPER(:stockCode)
               AND exchange_code IS NOT NULL
-              AND TRIM(exchange_code) <> ''
+              AND TRIM(exchange_code) IS NOT NULL
             ORDER BY instrument_id ASC
             """, nativeQuery = true)
     List<String> findExchangeCodesByStockCode(@Param("stockCode") String stockCode);

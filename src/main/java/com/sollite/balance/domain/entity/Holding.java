@@ -76,13 +76,24 @@ public class Holding {
         this.availableQuantity += quantity;
     }
 
-    /** 매수 체결: 수량 증가 + 평단가 재계산 */
-    public void addBuyFill(long quantity, BigDecimal fillPrice) {
-        BigDecimal prevTotal = this.avgBuyPrice.multiply(BigDecimal.valueOf(this.holdingQuantity));
-        BigDecimal newTotal = fillPrice.multiply(BigDecimal.valueOf(quantity));
+    /** 매수 체결: 수량 증가 + 평단가·평균매입환율 재계산 */
+    public void addBuyFill(long quantity, BigDecimal fillPrice, BigDecimal exchangeRate) {
+        BigDecimal prevUsdTotal = this.avgBuyPrice.multiply(BigDecimal.valueOf(this.holdingQuantity));
+        BigDecimal newUsdTotal = fillPrice.multiply(BigDecimal.valueOf(quantity));
         long newQty = this.holdingQuantity + quantity;
-        this.avgBuyPrice = prevTotal.add(newTotal)
+
+        this.avgBuyPrice = prevUsdTotal.add(newUsdTotal)
                 .divide(BigDecimal.valueOf(newQty), 4, RoundingMode.HALF_UP);
+
+        // 가중평균 환율 = (이전 USD총액 * 이전환율 + 신규 USD총액 * 신규환율) / 전체 USD총액
+        BigDecimal totalUsd = prevUsdTotal.add(newUsdTotal);
+        if (totalUsd.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal prevKrwTotal = prevUsdTotal.multiply(this.avgBuyExchangeRate);
+            BigDecimal newKrwTotal = newUsdTotal.multiply(exchangeRate);
+            this.avgBuyExchangeRate = prevKrwTotal.add(newKrwTotal)
+                    .divide(totalUsd, 6, RoundingMode.HALF_UP);
+        }
+
         this.holdingQuantity = newQty;
         this.availableQuantity += quantity;
     }
