@@ -282,7 +282,7 @@ class UserServiceTest {
             given(valueOperations.get("refresh:1")).willReturn("valid-refresh-token");
             given(userRepository.findById(1L)).willReturn(Optional.of(user));
             given(jwtTokenProvider.createAccessToken(any(), eq("test@example.com"))).willReturn("new-access-token");
-            given(jwtTokenProvider.createRefreshToken(any())).willReturn("new-refresh-token");
+            given(jwtTokenProvider.createRefreshToken(any(), anyLong())).willReturn("new-refresh-token");
             given(redisTemplate.getExpire("refresh:1", TimeUnit.MILLISECONDS)).willReturn(0L);
             given(jwtTokenProvider.getRefreshTokenExpiry(false)).willReturn(604800000L);
             given(jwtTokenProvider.getAccessTokenExpiry()).willReturn(1800000L);
