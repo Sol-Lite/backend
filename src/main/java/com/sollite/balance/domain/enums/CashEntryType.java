@@ -7,5 +7,7 @@ public enum CashEntryType {
     BUY_SETTLE,         // 매수 체결 — 실제 현금 차감 (total_amount)
     SELL_SETTLE,        // 매도 체결 — 현금 증가
     RESET,              // 시뮬레이션 초기화
-    ACCOUNT_CLOSE_RESET // 계좌 폐쇄 전 현금 0원 처리
+    ACCOUNT_CLOSE_RESET, // 계좌 폐쇄 전 현금 0원 처리
+    FX_OUT,             // 환전 출금 (from 통화 차감)
+    FX_IN               // 환전 입금 (to 통화 증가)
 }
