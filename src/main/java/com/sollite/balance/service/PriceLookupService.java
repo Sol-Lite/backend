@@ -83,6 +83,13 @@ public class PriceLookupService {
                 pair -> resolveForeignPrice(pair.getKey(), pair.getValue()));
     }
 
+    // ── 환율 ──────────────────────────────────────────────────────────────────
+
+    /** USD/KRW 환율 조회 (1 USD = X KRW). WS lastValue → Redis snapshot 순으로 폴백. */
+    public BigDecimal resolveUsdKrwRate() {
+        return parsePriceFromLastValue("/topic/currency/USD");
+    }
+
     // ── 내부 ──────────────────────────────────────────────────────────────────
 
     private <T> Map<String, BigDecimal> resolveParallel(
