@@ -36,6 +36,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -51,6 +52,7 @@ public class BalanceService {
     private final InstrumentRepository instrumentRepository;
     private final MarketService marketService;
     private final ForeignStockMarketService foreignStockMarketService;
+    private final PriceLookupService priceLookupService;
 
     private static final BigDecimal SEED_MONEY = new BigDecimal("100000000");
 
@@ -181,8 +183,14 @@ public class BalanceService {
         var pair = resolveAccountAndRound(userId);
         List<Holding> holdings = holdingRepository.findActiveHoldings(
                 pair.account.getAccountId(), pair.round.getSimulationRoundId(), DOMESTIC_MARKET_TYPES);
+
+        List<String> stockCodes = holdings.stream()
+                .map(h -> h.getInstrument().getStockCode())
+                .toList();
+        Map<String, BigDecimal> prices = priceLookupService.resolveDomesticPrices(stockCodes);
+
         return holdings.stream()
-                .map(this::toDomesticHoldingResponse)
+                .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getStockCode())))
                 .toList();
     }
 
@@ -193,38 +201,17 @@ public class BalanceService {
         var pair = resolveAccountAndRound(userId);
         List<Holding> holdings = holdingRepository.findActiveHoldings(
                 pair.account.getAccountId(), pair.round.getSimulationRoundId(), OVERSEAS_MARKET_TYPES);
-        return holdings.stream()
-                .map(this::toOverseasHoldingResponse)
+
+        List<Map.Entry<String, String>> symbolExchcdPairs = holdings.stream()
+                .map(h -> Map.entry(
+                        h.getInstrument().getStockCode(),
+                        toForeignExchcd(h.getInstrument().getExchangeCode())))
                 .toList();
-    }
+        Map<String, BigDecimal> prices = priceLookupService.resolveForeignPrices(symbolExchcdPairs);
 
-    private HoldingResponse toDomesticHoldingResponse(Holding holding) {
-        BigDecimal currentPrice = null;
-        try {
-            CurrentPriceResponse response = marketService.getCurrentPriceFresh(holding.getInstrument().getStockCode());
-            currentPrice = BigDecimal.valueOf(response.currentPrice());
-        } catch (Exception e) {
-            log.warn("국내 보유종목 현재가 조회 실패: stockCode={}", holding.getInstrument().getStockCode(), e);
-        }
-        return HoldingResponse.from(holding, currentPrice);
-    }
-
-    private HoldingResponse toOverseasHoldingResponse(Holding holding) {
-        BigDecimal currentPrice = null;
-        try {
-            String exchcd = toForeignExchcd(holding.getInstrument().getExchangeCode());
-            ForeignCurrentPriceResponse response = foreignStockMarketService.getCurrentPriceFresh(
-                    holding.getInstrument().getStockCode(),
-                    exchcd
-            );
-            currentPrice = BigDecimal.valueOf(response.price());
-        } catch (Exception e) {
-            log.warn("해외 보유종목 현재가 조회 실패: stockCode={}, exchangeCode={}",
-                    holding.getInstrument().getStockCode(),
-                    holding.getInstrument().getExchangeCode(),
-                    e);
-        }
-        return HoldingResponse.from(holding, currentPrice);
+        return holdings.stream()
+                .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getStockCode())))
+                .toList();
     }
 
     private String toForeignExchcd(String exchangeCode) {
