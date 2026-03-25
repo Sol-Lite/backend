@@ -92,6 +92,9 @@ public class EmailService {
         ));
         redisTemplate.expire("email_verify:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
 
+        // 폴링용 역매핑: token → email (미발급 토큰과 인증 완료 토큰 구분)
+        redisTemplate.opsForValue().set("email_verify_token:" + token, email, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
+
         sendHtmlEmail(email, token);
         incrementRateLimit(rateLimitKey);
         return token;

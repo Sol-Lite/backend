@@ -250,9 +250,15 @@ public class UserService {
     }
 
     // 폴링용: token 기반으로 인증 완료 여부 확인
-    // email_verify:{token} 키가 사라지면 인증 완료 (링크 클릭 시 삭제됨)
+    // email_verify_token:{token} 역매핑으로 발급된 토큰인지 먼저 확인
+    // → null이면 미발급/만료된 토큰이므로 false 반환 (보안 버그 방지)
+    // → email이 있으면 email_verified:{email} 키로 인증 완료 여부 확인
     public boolean checkEmailVerifiedByToken(String token) {
-        return !Boolean.TRUE.equals(redisTemplate.hasKey("email_verify:" + token));
+        String email = redisTemplate.opsForValue().get("email_verify_token:" + token);
+        if (email == null) {
+            return false;
+        }
+        return checkEmailVerified(email);
     }
 
     /**
