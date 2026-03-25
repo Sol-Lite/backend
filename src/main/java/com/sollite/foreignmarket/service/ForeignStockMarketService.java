@@ -11,6 +11,7 @@ public interface ForeignStockMarketService {
      * @return 현재가 정보
      */
     ForeignCurrentPriceResponse getCurrentPrice(String stockCode, String exchcd);
+    ForeignCurrentPriceResponse getCurrentPriceFresh(String stockCode, String exchcd);
 
     /**
      * g3106 - 해외주식 현재가호가 조회

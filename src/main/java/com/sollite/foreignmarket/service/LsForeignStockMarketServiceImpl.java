@@ -39,8 +39,17 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HHmmss");
 
     @Override
-    @Cacheable(cacheNames = "foreign:price", key = "#stockCode + ':' + #exchcd")
+    @Cacheable(
+            cacheNames = "foreign:price",
+            key = "T(com.sollite.foreignmarket.service.ForeignCacheKeys).currentPrice(#stockCode, #exchcd)",
+            sync = true
+    )
     public ForeignCurrentPriceResponse getCurrentPrice(String stockCode, String exchcd) {
+        return getCurrentPrice(stockCode, exchcd, false);
+    }
+
+    @Override
+    public ForeignCurrentPriceResponse getCurrentPriceFresh(String stockCode, String exchcd) {
         return getCurrentPrice(stockCode, exchcd, false);
     }
 
@@ -137,7 +146,11 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
-    @Cacheable(cacheNames = "foreign:orderbook", key = "#stockCode + ':' + #exchcd")
+    @Cacheable(
+            cacheNames = "foreign:orderbook",
+            key = "T(com.sollite.foreignmarket.service.ForeignCacheKeys).orderbook(#stockCode, #exchcd)",
+            sync = true
+    )
     public ForeignOrderbookResponse getOrderbook(String stockCode, String exchcd) {
         return getOrderbook(stockCode, exchcd, false);
     }
@@ -230,7 +243,10 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
-    @Cacheable(cacheNames = "foreign:info", key = "#stockCode + ':' + #exchcd")
+    @Cacheable(
+            cacheNames = "foreign:info",
+            key = "T(com.sollite.foreignmarket.service.ForeignCacheKeys).info(#stockCode, #exchcd)"
+    )
     public ForeignStockInfoResponse getInfo(String stockCode, String exchcd) {
         return getInfo(stockCode, exchcd, false);
     }
@@ -317,7 +333,10 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
-    @Cacheable(cacheNames = "foreign:chart", key = "#stockCode + ':' + #exchcd + ':' + #period + ':' + #date")
+    @Cacheable(
+            cacheNames = "foreign:chart",
+            key = "T(com.sollite.foreignmarket.service.ForeignCacheKeys).chart(#stockCode, #exchcd, #period, #date)"
+    )
     public ForeignChartResponse getChart(String stockCode, String exchcd, ForeignChartPeriod period, LocalDate date) {
         return getChart(stockCode, exchcd, period, date, false);
     }
@@ -394,7 +413,10 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
-    @Cacheable(cacheNames = "foreign:tick-chart", key = "#stockCode + ':' + #exchcd + ':' + #ncnt")
+    @Cacheable(
+            cacheNames = "foreign:tick-chart",
+            key = "T(com.sollite.foreignmarket.service.ForeignCacheKeys).tickChart(#stockCode, #exchcd, #ncnt)"
+    )
     public ForeignTickChartResponse getTickChart(String stockCode, String exchcd, int ncnt) {
         return getTickChart(stockCode, exchcd, ncnt, false);
     }
@@ -482,7 +504,10 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
-    @Cacheable(cacheNames = "foreign:minute-chart", key = "#stockCode + ':' + #exchcd + ':' + #nmin")
+    @Cacheable(
+            cacheNames = "foreign:minute-chart",
+            key = "T(com.sollite.foreignmarket.service.ForeignCacheKeys).minuteChart(#stockCode, #exchcd, #nmin)"
+    )
     public ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin) {
         return getMinuteChart(stockCode, exchcd, nmin, false);
     }
@@ -572,7 +597,10 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     }
 
     @Override
-    @Cacheable(cacheNames = "foreign:advanced-chart", key = "#stockCode + ':' + #exchcd + ':' + #period + ':' + #startDate + ':' + #endDate")
+    @Cacheable(
+            cacheNames = "foreign:advanced-chart",
+            key = "T(com.sollite.foreignmarket.service.ForeignCacheKeys).advancedChart(#stockCode, #exchcd, #period, #startDate, #endDate)"
+    )
     public ForeignChartResponse getAdvancedChart(String stockCode, String exchcd, ForeignChartPeriod period, LocalDate startDate, LocalDate endDate) {
         return getAdvancedChart(stockCode, exchcd, period, startDate, endDate, false);
     }

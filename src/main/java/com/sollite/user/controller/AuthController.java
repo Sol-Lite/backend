@@ -70,10 +70,11 @@ public class AuthController {
      */
     @PostMapping("/email/verify/send")
     public ResponseEntity<EmailVerifyResponse> sendVerificationEmail(@Valid @RequestBody EmailVerifyRequest request) {
-        userService.sendVerificationEmail(request);
+        String token = userService.sendVerificationEmail(request);
         return ResponseEntity.ok(new EmailVerifyResponse(
                 "인증 메일이 발송되었습니다.",
-                1800
+                1800,
+                token
         ));
     }
 
@@ -97,8 +98,8 @@ public class AuthController {
      * @return 200 OK - 인증 완료 여부
      */
     @GetMapping("/email/verify/status")
-    public ResponseEntity<EmailVerifyStatusResponse> checkEmailVerifyStatus(@RequestParam String email) {
-        boolean verified = userService.checkEmailVerified(email);
+    public ResponseEntity<EmailVerifyStatusResponse> checkEmailVerifyStatus(@RequestParam String token) {
+        boolean verified = userService.checkEmailVerifiedByToken(token);
         return ResponseEntity.ok(new EmailVerifyStatusResponse(verified));
     }
 

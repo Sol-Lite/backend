@@ -7,8 +7,11 @@ import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.account.domain.repository.SimulationRoundRepository;
 import com.sollite.account.exception.AccountErrorCode;
 import com.sollite.balance.domain.entity.CashBalance;
+import com.sollite.balance.domain.entity.CashLedger;
 import com.sollite.balance.domain.entity.Holding;
+import com.sollite.balance.domain.enums.CashEntryType;
 import com.sollite.balance.domain.repository.CashBalanceRepository;
+import com.sollite.balance.domain.repository.CashLedgerRepository;
 import com.sollite.balance.domain.repository.HoldingRepository;
 import com.sollite.balance.dto.BalanceSummaryResponse;
 import com.sollite.balance.dto.BuyableResponse;
@@ -17,10 +20,12 @@ import com.sollite.balance.dto.HoldingResponse;
 import com.sollite.balance.dto.PortfolioItem;
 import com.sollite.balance.dto.PortfolioResponse;
 import com.sollite.balance.exception.BalanceErrorCode;
+import com.sollite.foreignmarket.dto.ForeignCurrentPriceResponse;
 import com.sollite.foreignmarket.service.ForeignStockMarketService;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.market.domain.entity.Instrument;
 import com.sollite.market.domain.repository.InstrumentRepository;
+import com.sollite.market.dto.CurrentPriceResponse;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +36,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -41,10 +47,12 @@ public class BalanceService {
     private final AccountRepository accountRepository;
     private final SimulationRoundRepository simulationRoundRepository;
     private final CashBalanceRepository cashBalanceRepository;
+    private final CashLedgerRepository cashLedgerRepository;
     private final HoldingRepository holdingRepository;
     private final InstrumentRepository instrumentRepository;
     private final MarketService marketService;
     private final ForeignStockMarketService foreignStockMarketService;
+    private final PriceLookupService priceLookupService;
 
     private static final BigDecimal SEED_MONEY = new BigDecimal("100000000");
 
@@ -63,15 +71,49 @@ public class BalanceService {
     }
 
     /**
-     * 계좌 폐쇄 전 현금 잔고 검증 — 잔고 > 0 이면 예외
+     * 계좌 폐쇄 전 현금 잔고 검증 — KRW/USD 모두 0원이어야 함
      */
     public void validateCashForClose(Long accountId, Long roundId) {
-        CashBalance cb = cashBalanceRepository
-                .findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndCurrencyCode(
-                        accountId, roundId, "KRW")
-                .orElseThrow(() -> new BusinessException(BalanceErrorCode.CASH_BALANCE_NOT_FOUND));
-        if (cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
+        List<CashBalance> balances = cashBalanceRepository
+                .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId);
+        boolean hasBalance = balances.stream()
+                .anyMatch(cb -> cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0);
+        if (hasBalance) {
             throw new BusinessException(AccountErrorCode.ACCOUNT_CLOSE_BALANCE_REMAINS);
+        }
+    }
+
+    /**
+     * 계좌 폐쇄 전 현금을 0원으로 초기화합니다. KRW/USD 모두 처리하며 원장에 이력을 기록합니다.
+     * 미체결 주문이 없을 때만 호출 가능합니다 (PIN은 AccountService에서 검증).
+     */
+    @Transactional
+    public void resetCashForClose(Long userId) {
+        Account account = accountRepository.findByUser_UserId(userId)
+                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACCOUNT_NOT_FOUND));
+        SimulationRound round = simulationRoundRepository
+                .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), RoundStatus.ACTIVE)
+                .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
+
+        List<CashBalance> balances = cashBalanceRepository
+                .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(
+                        account.getAccountId(), round.getSimulationRoundId());
+
+        for (CashBalance cb : balances) {
+            if (cb.getTotalAmount().compareTo(BigDecimal.ZERO) == 0) continue;
+
+            cashLedgerRepository.save(CashLedger.builder()
+                    .account(account)
+                    .simulationRound(round)
+                    .currencyCode(cb.getCurrencyCode())
+                    .entryType(CashEntryType.ACCOUNT_CLOSE_RESET)
+                    .amountDelta(cb.getTotalAmount().negate())
+                    .balanceAfter(BigDecimal.ZERO)
+                    .referenceType("ACCOUNT_CLOSE")
+                    .referenceId(String.valueOf(account.getAccountId()))
+                    .build());
+
+            cb.resetToZero();
         }
     }
 
@@ -141,7 +183,15 @@ public class BalanceService {
         var pair = resolveAccountAndRound(userId);
         List<Holding> holdings = holdingRepository.findActiveHoldings(
                 pair.account.getAccountId(), pair.round.getSimulationRoundId(), DOMESTIC_MARKET_TYPES);
-        return holdings.stream().map(HoldingResponse::from).toList();
+
+        List<String> stockCodes = holdings.stream()
+                .map(h -> h.getInstrument().getStockCode())
+                .toList();
+        Map<String, BigDecimal> prices = priceLookupService.resolveDomesticPrices(stockCodes);
+
+        return holdings.stream()
+                .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getStockCode())))
+                .toList();
     }
 
     /**
@@ -151,7 +201,28 @@ public class BalanceService {
         var pair = resolveAccountAndRound(userId);
         List<Holding> holdings = holdingRepository.findActiveHoldings(
                 pair.account.getAccountId(), pair.round.getSimulationRoundId(), OVERSEAS_MARKET_TYPES);
-        return holdings.stream().map(HoldingResponse::from).toList();
+
+        List<Map.Entry<String, String>> symbolExchcdPairs = holdings.stream()
+                .map(h -> Map.entry(
+                        h.getInstrument().getStockCode(),
+                        toForeignExchcd(h.getInstrument().getExchangeCode())))
+                .toList();
+        Map<String, BigDecimal> prices = priceLookupService.resolveForeignPrices(symbolExchcdPairs);
+
+        return holdings.stream()
+                .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getStockCode())))
+                .toList();
+    }
+
+    private String toForeignExchcd(String exchangeCode) {
+        if (exchangeCode == null) {
+            return "82";
+        }
+        return switch (exchangeCode) {
+            case "NYS", "AMS" -> "81";
+            case "NAS" -> "82";
+            default -> "82";
+        };
     }
 
     /**
@@ -251,10 +322,10 @@ public class BalanceService {
         try {
             if (List.of("NASDAQ", "NYSE", "AMEX").contains(instrument.getMarketType())) {
                 String exchcd = resolveExchangeCode(instrument.getExchangeCode());
-                var response = foreignStockMarketService.getCurrentPrice(instrument.getStockCode(), exchcd);
+                var response = foreignStockMarketService.getCurrentPriceFresh(instrument.getStockCode(), exchcd);
                 return BigDecimal.valueOf(response.price());
             } else {
-                var response = marketService.getCurrentPrice(instrument.getStockCode());
+                var response = marketService.getCurrentPriceFresh(instrument.getStockCode());
                 return BigDecimal.valueOf(response.currentPrice());
             }
         } catch (Exception e) {

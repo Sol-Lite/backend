@@ -13,6 +13,10 @@ import org.springframework.stereotype.Service;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 
+import org.springframework.data.redis.core.script.RedisScript;
+
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -43,6 +47,32 @@ public class EmailService {
     private static final String PW_RESET_LIMIT     = "pw_reset_limit:";
     private static final String PIN_RESET_LIMIT    = "pin_reset_limit:";
 
+    // HGETALL + DEL 을 원자적으로 실행하는 Lua 스크립트.
+    // 토큰이 존재하면 데이터를 반환하고 즉시 삭제 → 동시 요청으로 인한 1회용 토큰 중복 사용 방지
+    @SuppressWarnings("rawtypes")
+    private static final RedisScript<List> HGETALL_AND_DEL = RedisScript.of(
+            "local d = redis.call('HGETALL', KEYS[1]) " +
+            "if #d == 0 then return nil end " +
+            "redis.call('DEL', KEYS[1]) " +
+            "return d",
+            List.class);
+
+    // 현재 카운트만 읽는 스크립트 (발송 전 초과 여부 체크용)
+    // 반환: 현재 횟수 (키 없으면 0)
+    private static final RedisScript<Long> CHECK_RATE_SCRIPT = RedisScript.of(
+            "local c = redis.call('GET', KEYS[1]) " +
+            "if c == false then return 0 end " +
+            "return tonumber(c)",
+            Long.class);
+
+    // INCR + EXPIRE 원자 처리 (발송 성공 후 카운트 증가용)
+    // ARGV[1] = TTL(초) — 첫 INCR 시에만 EXPIRE 설정
+    private static final RedisScript<Long> INCR_RATE_SCRIPT = RedisScript.of(
+            "local c = redis.call('INCR', KEYS[1]) " +
+            "if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end " +
+            "return c",
+            Long.class);
+
     /**
      * 이메일 인증 메일을 발송합니다. 회원가입 전에도 호출 가능합니다.
      *
@@ -50,7 +80,7 @@ public class EmailService {
      * @throws BusinessException 재발송 제한 초과 시
      * @throws BusinessException 이메일 발송 실패 시
      */
-    public void sendVerificationEmail(String email) {
+    public String sendVerificationEmail(String email) {
         String rateLimitKey = EMAIL_VERIFY_LIMIT + email;
         checkRateLimit(rateLimitKey);
 
@@ -62,8 +92,12 @@ public class EmailService {
         ));
         redisTemplate.expire("email_verify:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
 
-        incrementRateLimit(rateLimitKey);
+        // 폴링용 역매핑: token → email (미발급 토큰과 인증 완료 토큰 구분)
+        redisTemplate.opsForValue().set("email_verify_token:" + token, email, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
+
         sendHtmlEmail(email, token);
+        incrementRateLimit(rateLimitKey);
+        return token;
     }
 
     /**
@@ -74,21 +108,9 @@ public class EmailService {
      * @throws BusinessException 토큰 만료 또는 유효하지 않은 토큰 시
      */
     public String verifyToken(String token) {
-        String key = "email_verify:" + token;
-        Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
-
-        if (data.isEmpty()) {
-            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
-        }
-
-        // 토큰 사용 후 삭제 (1회용)
-        redisTemplate.delete(key);
-
-        String email = (String) data.get("email");
-
-        // 인증 완료 표시 저장 (회원가입 시 검증용, 30분 유효)
+        Map<String, String> data = getAndDeleteHash("email_verify:" + token);
+        String email = data.get("email");
         redisTemplate.opsForValue().set("email_verified:" + email, "true", VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
-
         return email;
     }
 
@@ -99,17 +121,17 @@ public class EmailService {
      * @throws BusinessException 재발송 제한 초과 시
      */
     private void checkRateLimit(String rateLimitKey) {
-        String count = redisTemplate.opsForValue().get(rateLimitKey);
-        if (count != null && Integer.parseInt(count) >= RATE_LIMIT) {
+        Long count = redisTemplate.execute(CHECK_RATE_SCRIPT, List.of(rateLimitKey));
+        if (count != null && count >= RATE_LIMIT) {
             throw new BusinessException(UserErrorCode.TOO_MANY_REQUESTS);
         }
     }
 
     private void incrementRateLimit(String rateLimitKey) {
-        redisTemplate.opsForValue().increment(rateLimitKey);
-        if (redisTemplate.getExpire(rateLimitKey) == -1) {
-            redisTemplate.expire(rateLimitKey, RATE_LIMIT_TTL, TimeUnit.MINUTES);
-        }
+        redisTemplate.execute(
+                INCR_RATE_SCRIPT,
+                List.of(rateLimitKey),
+                String.valueOf(RATE_LIMIT_TTL * 60));
     }
 
     /**
@@ -133,8 +155,8 @@ public class EmailService {
         ));
         redisTemplate.expire("pw_reset:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
 
-        incrementRateLimit(rateLimitKey);
         sendPasswordResetHtmlEmail(email, token);
+        incrementRateLimit(rateLimitKey);
     }
 
     /**
@@ -145,15 +167,7 @@ public class EmailService {
      * @throws BusinessException 토큰 만료 또는 유효하지 않은 토큰 시
      */
     public Map<String, String> verifyPasswordResetToken(String token) {
-        String key = "pw_reset:" + token;
-        Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
-
-        if (data.isEmpty()) {
-            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
-        }
-
-        redisTemplate.delete(key);
-
+        Map<String, String> data = getAndDeleteHash("pw_reset:" + token);
         return Map.of(
                 "user_id", getRequiredTokenField(data, "user_id"),
                 "email", getRequiredTokenField(data, "email")
@@ -173,32 +187,37 @@ public class EmailService {
         ));
         redisTemplate.expire("pin_reset:" + token, VERIFY_TOKEN_TTL, TimeUnit.MINUTES);
 
-        incrementRateLimit(rateLimitKey);
         sendPinResetHtmlEmail(email, token);
+        incrementRateLimit(rateLimitKey);
     }
 
     public Map<String, String> verifyPinResetToken(String token) {
-        String key = "pin_reset:" + token;
-        Map<Object, Object> data = redisTemplate.opsForHash().entries(key);
-
-        if (data.isEmpty()) {
-            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
-        }
-
-        redisTemplate.delete(key);
-
+        Map<String, String> data = getAndDeleteHash("pin_reset:" + token);
         return Map.of(
                 "user_id", getRequiredTokenField(data, "user_id"),
                 "email", getRequiredTokenField(data, "email")
         );
     }
 
-    private String getRequiredTokenField(Map<Object, Object> data, String fieldName) {
-        Object value = data.get(fieldName);
-        if (!(value instanceof String stringValue) || stringValue.isBlank()) {
+    private String getRequiredTokenField(Map<String, String> data, String fieldName) {
+        String value = data.get(fieldName);
+        if (value == null || value.isBlank()) {
             throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
         }
-        return stringValue;
+        return value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, String> getAndDeleteHash(String key) {
+        List<String> raw = (List<String>) redisTemplate.execute(HGETALL_AND_DEL, List.of(key));
+        if (raw == null || raw.isEmpty()) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+        Map<String, String> result = new HashMap<>();
+        for (int i = 0; i + 1 < raw.size(); i += 2) {
+            result.put(raw.get(i), raw.get(i + 1));
+        }
+        return result;
     }
 
     private void sendPinResetHtmlEmail(String email, String token) {

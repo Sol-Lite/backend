@@ -2,5 +2,6 @@ package com.sollite.user.dto;
 
 public record EmailVerifyResponse(
         String message,
-        long expiresIn
+        long expiresIn,
+        String token
 ) {}

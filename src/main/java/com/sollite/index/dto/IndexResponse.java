@@ -3,8 +3,8 @@ package com.sollite.index.dto;
 public record IndexResponse(
         String code,
         String name,
-        double price,
+        Double price,
         String sign,
-        double change,
-        double changeRate
+        Double change,
+        Double changeRate
 ) {}

@@ -74,4 +74,10 @@ public class CashBalance {
         this.availableAmount = this.availableAmount.add(proceeds);
         this.totalAmount = this.totalAmount.add(proceeds);
     }
+
+    /** 계좌 폐쇄 전 현금 0원 처리 */
+    public void resetToZero() {
+        this.availableAmount = BigDecimal.ZERO;
+        this.totalAmount = BigDecimal.ZERO;
+    }
 }

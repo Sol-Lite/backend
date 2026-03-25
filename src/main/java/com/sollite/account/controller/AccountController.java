@@ -122,6 +122,23 @@ public class AccountController {
     }
 
     /**
+     * 계좌 폐쇄 전 보유 현금(KRW/USD)을 0원으로 초기화합니다. PIN 인증 필수.
+     * 미체결 주문이 없어야 하며, 원장에 이력이 기록됩니다.
+     *
+     * @param authentication 현재 인증된 사용자 정보
+     * @param request 계좌 비밀번호
+     * @return 200 OK - 처리 완료 메시지
+     */
+    @PostMapping("/me/cash/reset")
+    public ResponseEntity<MessageResponse> resetCashForClose(
+            Authentication authentication,
+            @Valid @RequestBody AccountCloseRequest request) {
+        Long userId = AuthUtil.getUserId(authentication);
+        accountCloseFacade.resetCashForClose(userId, request.accountPin());
+        return ResponseEntity.ok(new MessageResponse("보유 현금이 0원으로 처리되었습니다."));
+    }
+
+    /**
      * 계좌를 폐쇄합니다. PIN 인증 필수.
      * 잔고/보유자산/미체결주문 검증은 추후 추가 예정 (issue #15)
      *

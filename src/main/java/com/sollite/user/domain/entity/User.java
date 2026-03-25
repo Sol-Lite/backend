@@ -87,6 +87,8 @@ public class User {
 
     public void resetLoginFailCount() {
         this.loginFailCount = 0;
+        this.status = UserStatus.ACTIVE;
+        this.lockedAt = null;
     }
 
     public void unlock() {
@@ -119,5 +121,11 @@ public class User {
 
     public boolean isLocked() {
         return this.status == UserStatus.LOCKED;
+    }
+
+    public boolean isLockExpired() {
+        return this.status == UserStatus.LOCKED
+                && this.lockedAt != null
+                && this.lockedAt.isBefore(LocalDateTime.now().minusMinutes(10));
     }
 }

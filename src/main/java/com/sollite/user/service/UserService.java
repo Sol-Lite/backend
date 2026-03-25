@@ -11,10 +11,12 @@ import com.sollite.user.dto.*;
 import com.sollite.user.exception.UserErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -33,6 +35,24 @@ public class UserService {
     private final StringRedisTemplate redisTemplate;
     private final LoginAttemptService loginAttemptService;
     private final EmailService emailService;
+
+    // 검증 + 삭제 원자 처리: 1=성공, 0=이미 없음(멱등), -1=토큰 불일치
+    private static final RedisScript<Long> LOGOUT_SCRIPT = RedisScript.of(
+            "local s = redis.call('GET', KEYS[1]) " +
+            "if s == false then return 0 end " +
+            "if s ~= ARGV[1] then return -1 end " +
+            "redis.call('DEL', KEYS[1]) " +
+            "return 1",
+            Long.class);
+
+    // 검증 + 갱신 원자 처리: 1=성공, 0=없음, -1=토큰 불일치
+    private static final RedisScript<Long> ROTATE_SCRIPT = RedisScript.of(
+            "local s = redis.call('GET', KEYS[1]) " +
+            "if s == false then return 0 end " +
+            "if s ~= ARGV[1] then return -1 end " +
+            "redis.call('PSETEX', KEYS[1], ARGV[3], ARGV[2]) " +
+            "return 1",
+            Long.class);
 
     /**
      * 사용자를 신규 등록합니다. SignupFacade에서 트랜잭션 내에 호출됩니다.
@@ -83,6 +103,12 @@ public class UserService {
         User user = userRepository.findByEmail(request.email())
                 .orElseThrow(() -> new BusinessException(UserErrorCode.INVALID_PASSWORD));
 
+        if (!user.isActive()) {
+            throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
+        }
+
+        loginAttemptService.unlockIfExpired(user);
+
         if (user.isLocked()) {
             throw new BusinessException(UserErrorCode.ACCOUNT_LOCKED);
         }
@@ -102,9 +128,8 @@ public class UserService {
         loginAttemptService.recordSuccess(user);
 
         String accessToken = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
-        String refreshToken = jwtTokenProvider.createRefreshToken(user.getUserId());
-
         long refreshTokenExpiry = jwtTokenProvider.getRefreshTokenExpiry(request.isAutoLogin());
+        String refreshToken = jwtTokenProvider.createRefreshToken(user.getUserId(), refreshTokenExpiry);
         redisTemplate.opsForValue().set(
                 "refresh:" + user.getUserId(),
                 refreshToken,
@@ -135,13 +160,15 @@ public class UserService {
      * @throws BusinessException 유효하지 않은 토큰 시
      */
     public void logout(Long userId, String refreshToken) {
-        String storedToken = redisTemplate.opsForValue().get("refresh:" + userId);
+        Long result = redisTemplate.execute(
+                LOGOUT_SCRIPT,
+                List.of("refresh:" + userId),
+                refreshToken);
 
-        if (storedToken == null || !storedToken.equals(refreshToken)) {
+        // 0 = 이미 세션 없음 → 멱등 처리 (중복 로그아웃 요청은 성공으로 간주)
+        if (result != null && result == -1L) {
             throw new BusinessException(UserErrorCode.INVALID_TOKEN);
         }
-
-        redisTemplate.delete("refresh:" + userId);
     }
 
     /**
@@ -158,26 +185,36 @@ public class UserService {
 
         Long userId = jwtTokenProvider.getUserIdFromToken(refreshToken);
 
-        String storedToken = redisTemplate.opsForValue().get("refresh:" + userId);
-        if (storedToken == null || !storedToken.equals(refreshToken)) {
-            throw new BusinessException(UserErrorCode.INVALID_TOKEN);
-        }
-
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
-        String newAccessToken  = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
-        String newRefreshToken = jwtTokenProvider.createRefreshToken(user.getUserId());
+        if (user.isLocked()) {
+            throw new BusinessException(UserErrorCode.ACCOUNT_LOCKED);
+        }
+        if (!user.isActive()) {
+            throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
+        }
 
-        // 기존 토큰의 남은 TTL을 그대로 유지하여 새 토큰 저장
+        String newAccessToken = jwtTokenProvider.createAccessToken(user.getUserId(), user.getEmail());
+
         long remainingTtl = redisTemplate.getExpire("refresh:" + userId, TimeUnit.MILLISECONDS);
-        long ttlForCookie = remainingTtl > 0 ? remainingTtl : jwtTokenProvider.getRefreshTokenExpiry(false);
-        redisTemplate.opsForValue().set(
-                "refresh:" + userId,
-                newRefreshToken,
-                ttlForCookie,
-                TimeUnit.MILLISECONDS
-        );
+        if (remainingTtl <= 0) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+        String newRefreshToken = jwtTokenProvider.createRefreshToken(user.getUserId(), remainingTtl);
+
+        // 검증 + 갱신 원자 처리
+        Long result = redisTemplate.execute(
+                ROTATE_SCRIPT,
+                List.of("refresh:" + userId),
+                refreshToken, newRefreshToken, String.valueOf(remainingTtl));
+
+        if (result == null || result == 0L) {
+            throw new BusinessException(UserErrorCode.TOKEN_EXPIRED);
+        }
+        if (result == -1L) {
+            throw new BusinessException(UserErrorCode.INVALID_TOKEN);
+        }
 
         return new TokenRefreshResult(
                 new TokenRefreshResponse(
@@ -185,7 +222,7 @@ public class UserService {
                         jwtTokenProvider.getAccessTokenExpiry() / 1000
                 ),
                 newRefreshToken,
-                ttlForCookie
+                remainingTtl
         );
     }
 
@@ -195,11 +232,11 @@ public class UserService {
      * @param request 이메일 주소
      * @throws BusinessException 이미 가입된 이메일인 경우
      */
-    public void sendVerificationEmail(EmailVerifyRequest request) {
+    public String sendVerificationEmail(EmailVerifyRequest request) {
         if (userRepository.existsByEmail(request.email())) {
             throw new BusinessException(UserErrorCode.DUPLICATE_EMAIL);
         }
-        emailService.sendVerificationEmail(request.email());
+        return emailService.sendVerificationEmail(request.email());
     }
 
     /**
@@ -210,6 +247,18 @@ public class UserService {
      */
     public boolean checkEmailVerified(String email) {
         return "true".equals(redisTemplate.opsForValue().get("email_verified:" + email));
+    }
+
+    // 폴링용: token 기반으로 인증 완료 여부 확인
+    // email_verify_token:{token} 역매핑으로 발급된 토큰인지 먼저 확인
+    // → null이면 미발급/만료된 토큰이므로 false 반환 (보안 버그 방지)
+    // → email이 있으면 email_verified:{email} 키로 인증 완료 여부 확인
+    public boolean checkEmailVerifiedByToken(String token) {
+        String email = redisTemplate.opsForValue().get("email_verify_token:" + token);
+        if (email == null) {
+            return false;
+        }
+        return checkEmailVerified(email);
     }
 
     /**
@@ -268,6 +317,7 @@ public class UserService {
         }
 
         user.changePassword(passwordEncoder.encode(request.newPassword()));
+        redisTemplate.delete("refresh:" + userId);
     }
 
     private Long parseTokenUserId(java.util.Map<String, String> tokenData) {
@@ -349,5 +399,13 @@ public class UserService {
      */
     public void confirmEmailVerification(EmailVerifyConfirmRequest request) {
         emailService.verifyToken(request.token());
+    }
+
+    @Transactional
+    public void withdraw(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+        user.withdraw();
+        redisTemplate.delete("refresh:" + userId);
     }
 }
