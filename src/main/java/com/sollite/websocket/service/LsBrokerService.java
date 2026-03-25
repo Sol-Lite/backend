@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.global.service.LsTokenService;
 import com.sollite.market.domain.repository.InstrumentRepository;
 import com.sollite.order.event.MarketTickEvent;
+import com.sollite.order.service.ActiveOrderRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,7 @@ public class LsBrokerService {
     private final StringRedisTemplate redisTemplate;
     private final InstrumentRepository instrumentRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final ActiveOrderRegistry activeOrderRegistry;
 
     private static final String INDEX_SNAPSHOT_PREFIX = "index:snapshot:";
     private static final Duration INDEX_SNAPSHOT_TTL = Duration.ofHours(48);
@@ -58,6 +60,9 @@ public class LsBrokerService {
     private Disposable lsConnection;
     private Sinks.Many<String> outboundSink;
     private final AtomicBoolean connected = new AtomicBoolean(false);
+    private final AtomicBoolean connecting = new AtomicBoolean(false);
+    private final AtomicBoolean reconnectScheduled = new AtomicBoolean(false);
+    private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
 
     // 종목별 구독자 카운팅: "UH1:005930" → 3명
     private final Map<String, AtomicInteger> subscriberCount = new ConcurrentHashMap<>();
@@ -98,10 +103,17 @@ public class LsBrokerService {
 
     @PreDestroy
     public void destroy() {
+        shuttingDown.set(true);
+        connected.set(false);
+        connecting.set(false);
+        reconnectScheduled.set(false);
+        if (outboundSink != null) {
+            outboundSink.tryEmitComplete();
+        }
         if (lsConnection != null && !lsConnection.isDisposed()) {
             lsConnection.dispose();
         }
-        reconnectScheduler.shutdown();
+        reconnectScheduler.shutdownNow();
     }
 
     /**
@@ -114,14 +126,25 @@ public class LsBrokerService {
 
         log.info("[SUBSCRIBE] trCd={}, key={}, 구독자수={}, LS연결상태={}", trCd, key, current, connected.get());
 
+        boolean isConnected = connected.get();
+        boolean alreadyActive = activeSubscriptions.contains(subscriptionKey);
+
         // 첫 구독자 → LS에 실시간 등록
-        if (current == 1) {
-            if (connected.get()) {
+        if (isConnected && !alreadyActive) {
+            if (current == 1) {
                 log.info("[SUBSCRIBE] 첫 구독자 → LS 등록 시작: {}", subscriptionKey);
-                registerToLs(trCd, key);
             } else {
-                log.warn("[SUBSCRIBE] 첫 구독자이나 LS 미연결 상태 → 등록 보류: {}", subscriptionKey);
+                log.warn("[SUBSCRIBE] activeSubscriptions 누락 감지 → LS 재등록 시도: {}", subscriptionKey);
             }
+            registerToLs(trCd, key);
+        } else if (!isConnected) {
+            if (current == 1) {
+                log.warn("[SUBSCRIBE] 첫 구독자이나 LS 미연결 상태 → 등록 보류: {}", subscriptionKey);
+            } else {
+                log.info("[SUBSCRIBE] 추가 구독자이나 LS 미연결 상태 → 연결 복구 후 등록 예정: {}", subscriptionKey);
+            }
+        } else if (current == 1) {
+            log.info("[SUBSCRIBE] 첫 구독자이지만 이미 LS 등록 상태 → 재등록 스킵: {}", subscriptionKey);
         } else {
             log.info("[SUBSCRIBE] 추가 구독자 → LS 등록 스킵 (이미 등록됨): {}", subscriptionKey);
         }
@@ -163,6 +186,7 @@ public class LsBrokerService {
                 log.warn("[UNSUBSCRIBE] 구독자 0이나 LS 미연결 → 해제 메시지 스킵: {}", subscriptionKey);
             }
             activeSubscriptions.remove(subscriptionKey);
+            evictLastValue(subscriptionKey, trCd, key);
         }
     }
 
@@ -170,12 +194,32 @@ public class LsBrokerService {
      * LS WebSocket 연결
      */
     private void connectToLs() {
+        if (shuttingDown.get()) {
+            log.info("[LS-WS] 종료 중 연결 시도 스킵");
+            return;
+        }
+        if (connected.get()) {
+            reconnectScheduled.set(false);
+            log.info("[LS-WS] 이미 연결 상태라 연결 시도 스킵");
+            return;
+        }
+        if (!connecting.compareAndSet(false, true)) {
+            log.info("[LS-WS] 이미 연결/재연결 진행 중이라 연결 시도 스킵");
+            return;
+        }
+        if (lsConnection != null && !lsConnection.isDisposed()) {
+            log.info("[LS-WS] 이전 연결 dispose 후 재연결 진행");
+            lsConnection.dispose();
+        }
+
         String restoreToken = lsTokenService.getAccessToken();
         outboundSink = Sinks.many().unicast().onBackpressureBuffer();
 
         log.info("[LS-WS] 연결 시도: url={}", lsWsUrl);
         lsConnection = lsClient.execute(URI.create(lsWsUrl), lsSession -> {
             connected.set(true);
+            connecting.set(false);
+            reconnectScheduled.set(false);
             reconnectAttempts.set(0);
             log.info("[LS-WS] 연결 성공. 기존 구독 복원 시작");
 
@@ -194,7 +238,7 @@ public class LsBrokerService {
                     .filter(msg -> msg.getType() == WebSocketMessage.Type.TEXT)
                     .doOnNext(msg -> {
                         String payload = msg.getPayloadAsText();
-                        log.info("[LS-WS←] 수신: {}", payload.length() > 300 ? payload.substring(0, 300) + "..." : payload);
+                        log.debug("[LS-WS←] 수신: {}", payload.length() > 300 ? payload.substring(0, 300) + "..." : payload);
                         handleLsMessage(payload);
                     })
                     .then();
@@ -203,11 +247,13 @@ public class LsBrokerService {
         }).subscribe(
                 null,
                 error -> {
+                    connecting.set(false);
                     log.error("[LS-WS] 연결 오류 (연결끊김): {}", error.getMessage());
                     connected.set(false);
                     scheduleReconnect();
                 },
                 () -> {
+                    connecting.set(false);
                     log.warn("[LS-WS] 서버에 의해 연결 종료됨");
                     connected.set(false);
                     scheduleReconnect();
@@ -230,8 +276,12 @@ public class LsBrokerService {
         String message = buildLsMessage(token, "3", trCd, trKey);
 
         Sinks.EmitResult result = outboundSink.tryEmitNext(message);
-        activeSubscriptions.add(subscriptionKey);
-        log.info("[LS-REG] 등록 완료: trCd={}, key={}, trKey='{}', emitResult={}", trCd, key, trKey, result);
+        if (result == Sinks.EmitResult.OK) {
+            activeSubscriptions.add(subscriptionKey);
+            log.info("[LS-REG] 등록 완료: trCd={}, key={}, trKey='{}', emitResult={}", trCd, key, trKey, result);
+            return;
+        }
+        log.error("[LS-REG] 등록 실패: trCd={}, key={}, trKey='{}', emitResult={}", trCd, key, trKey, result);
     }
 
     /**
@@ -243,7 +293,11 @@ public class LsBrokerService {
         String message = buildLsMessage(token, "4", trCd, trKey);
 
         Sinks.EmitResult result = outboundSink.tryEmitNext(message);
-        log.info("[LS-UNREG] 해제 완료: trCd={}, key={}, trKey='{}', emitResult={}", trCd, key, trKey, result);
+        if (result == Sinks.EmitResult.OK) {
+            log.info("[LS-UNREG] 해제 완료: trCd={}, key={}, trKey='{}', emitResult={}", trCd, key, trKey, result);
+            return;
+        }
+        log.error("[LS-UNREG] 해제 실패: trCd={}, key={}, trKey='{}', emitResult={}", trCd, key, trKey, result);
     }
 
     /**
@@ -251,6 +305,9 @@ public class LsBrokerService {
      */
     private void handleLsMessage(String payload) {
         try {
+            if (shuttingDown.get()) {
+                return;
+            }
             JsonNode root = objectMapper.readTree(payload);
             JsonNode header = root.get("header");
             if (header == null) {
@@ -266,7 +323,7 @@ public class LsBrokerService {
             // 구독/해제 응답 (body=null인 ACK 메시지)
             JsonNode body = root.get("body");
             if (body == null || body.isNull()) {
-                log.info("[LS-MSG] ACK 수신: trCd={}, trType={}, rspCd={}, rspMsg={}", trCd, trType, rspCd, rspMsg);
+                log.debug("[LS-MSG] ACK 수신: trCd={}, trType={}, rspCd={}, rspMsg={}", trCd, trType, rspCd, rspMsg);
                 return;
             }
 
@@ -277,7 +334,7 @@ public class LsBrokerService {
             }
 
             // 종목코드 추출
-            String symbol = extractSymbol(trCd, body);
+            String symbol = extractSymbol(trCd, header, body);
             if (symbol == null) {
                 log.warn("[LS-MSG] symbol 추출 실패: trCd={}, body={}", trCd, body);
                 return;
@@ -287,18 +344,19 @@ public class LsBrokerService {
             String bodyJson = body.toString();
             lastValues.put(topic, bodyJson);
             messagingTemplate.convertAndSend(topic, bodyJson);
-            log.info("[LS-MSG] STOMP 브로드캐스트: topic={}", topic);
+            log.debug("[LS-MSG] STOMP 브로드캐스트: topic={}", topic);
 
             // 지수 데이터는 Redis에 스냅샷 저장 (장 마감 후에도 종가 제공)
             if (topic.startsWith("/topic/index/")) {
-                redisTemplate.opsForValue().set(INDEX_SNAPSHOT_PREFIX + topic, bodyJson, INDEX_SNAPSHOT_TTL);
+                safeSnapshotSet(INDEX_SNAPSHOT_PREFIX + topic, bodyJson, INDEX_SNAPSHOT_TTL);
             }
             if (topic.startsWith("/topic/currency/")) {
-                redisTemplate.opsForValue().set(CURRENCY_SNAPSHOT_PREFIX + topic, bodyJson, CURRENCY_SNAPSHOT_TTL);
+                safeSnapshotSet(CURRENCY_SNAPSHOT_PREFIX + topic, bodyJson, CURRENCY_SNAPSHOT_TTL);
             }
 
-            // 체결 틱(US3/GSC)인 경우 주문 매칭용 내부 이벤트 발행
-            if ("US3".equals(trCd) || "GSC".equals(trCd)) {
+            // 체결 틱(US3/GSC)이고 대기 LIMIT 주문이 있는 종목일 때만 주문 매칭 이벤트 발행
+            if (("US3".equals(trCd) || "GSC".equals(trCd))
+                    && activeOrderRegistry.hasActiveOrders(trCd, symbol)) {
                 java.math.BigDecimal tickPrice = extractTradePrice(trCd, body);
                 if (tickPrice != null) {
                     applicationEventPublisher.publishEvent(
@@ -335,15 +393,37 @@ public class LsBrokerService {
     /**
      * 종목코드 추출 (TR별 필드명이 다름)
      */
-    private String extractSymbol(String trCd, JsonNode body) {
+    private String extractSymbol(String trCd, JsonNode header, JsonNode body) {
         return switch (trCd) {
-            case "UH1", "US3" -> body.has("shcode") ? body.get("shcode").asText() : null;
+            case "UH1", "US3" -> extractDomesticSymbol(header, body);
             case "CUR" -> body.has("base_id") ? body.get("base_id").asText() : null;
             case "GSH", "GSC" -> body.has("symbol") ? normalizeForeignSymbol(body.get("symbol").asText()) : null;
             case "IJ_" -> body.has("upcode") ? body.get("upcode").asText() : null;
             case "MK2" -> body.has("xsymbol") ? body.get("xsymbol").asText().trim() : null;
             default -> null;
         };
+    }
+
+    private String extractDomesticSymbol(JsonNode header, JsonNode body) {
+        if (body.has("shcode")) {
+            String shcode = body.get("shcode").asText();
+            if (shcode != null && !shcode.isBlank()) {
+                return shcode.trim();
+            }
+        }
+
+        if (header != null && header.has("tr_key")) {
+            String trKey = header.get("tr_key").asText("");
+            if (!trKey.isBlank()) {
+                String normalized = trKey.trim();
+                if (normalized.startsWith("U") && normalized.length() > 1) {
+                    normalized = normalized.substring(1);
+                }
+                return normalized.trim();
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -437,8 +517,22 @@ public class LsBrokerService {
      * 재연결 스케줄링 (지수 백오프)
      */
     private void scheduleReconnect() {
+        if (shuttingDown.get()) {
+            log.info("[LS-WS] 종료 중 재연결 스킵");
+            return;
+        }
+        if (connected.get() || connecting.get()) {
+            log.info("[LS-WS] 이미 연결/재연결 진행 중이라 재연결 스킵");
+            return;
+        }
+        if (!reconnectScheduled.compareAndSet(false, true)) {
+            log.info("[LS-WS] 재연결이 이미 예약되어 있어 스킵");
+            return;
+        }
+
         int attempts = reconnectAttempts.incrementAndGet();
         if (attempts > MAX_RECONNECT_ATTEMPTS) {
+            reconnectScheduled.set(false);
             log.error("LS WebSocket 재연결 최대 횟수 초과 ({}회)", MAX_RECONNECT_ATTEMPTS);
             return;
         }
@@ -447,6 +541,10 @@ public class LsBrokerService {
         log.info("LS WebSocket 재연결 예정: {}초 후 (시도 {}/{})", delay, attempts, MAX_RECONNECT_ATTEMPTS);
 
         reconnectScheduler.schedule(() -> {
+            reconnectScheduled.set(false);
+            if (shuttingDown.get()) {
+                return;
+            }
             log.info("LS WebSocket 재연결 시도 ({}/{})", attempts, MAX_RECONNECT_ATTEMPTS);
             connectToLs();
         }, delay, TimeUnit.SECONDS);
@@ -463,10 +561,10 @@ public class LsBrokerService {
     public String getLastValue(String topic) {
         String value = lastValues.get(topic);
         if (value == null && topic.startsWith("/topic/index/")) {
-            value = redisTemplate.opsForValue().get(INDEX_SNAPSHOT_PREFIX + topic);
+            value = safeSnapshotGet(INDEX_SNAPSHOT_PREFIX + topic);
         }
         if (value == null && topic.startsWith("/topic/currency/")) {
-            value = redisTemplate.opsForValue().get(CURRENCY_SNAPSHOT_PREFIX + topic);
+            value = safeSnapshotGet(CURRENCY_SNAPSHOT_PREFIX + topic);
         }
         if (value != null) {
             lastValues.put(topic, value); // 인메모리 복구
@@ -506,8 +604,49 @@ public class LsBrokerService {
         String message = buildLsMessage(token, "3", trCd, trKey);
 
         log.info("LS 종목 등록 메시지: {}", message);
-        outboundSink.tryEmitNext(message);
-        activeSubscriptions.add(subscriptionKey);
-        log.info("LS 종목 등록: trCd={}, key={}, trKey={}", trCd, key, trKey);
+        Sinks.EmitResult result = outboundSink.tryEmitNext(message);
+        if (result == Sinks.EmitResult.OK) {
+            activeSubscriptions.add(subscriptionKey);
+            log.info("LS 종목 등록: trCd={}, key={}, trKey={}", trCd, key, trKey);
+            return;
+        }
+        log.error("LS 종목 등록 실패: trCd={}, key={}, trKey={}, emitResult={}", trCd, key, trKey, result);
+    }
+
+    private void safeSnapshotSet(String key, String value, Duration ttl) {
+        if (shuttingDown.get()) {
+            return;
+        }
+        try {
+            redisTemplate.opsForValue().set(key, value, ttl);
+        } catch (IllegalStateException e) {
+            if (!shuttingDown.get()) {
+                log.warn("[LS-REDIS] snapshot 저장 스킵: key={}, reason={}", key, e.getMessage());
+            }
+        }
+    }
+
+    private String safeSnapshotGet(String key) {
+        if (shuttingDown.get()) {
+            return null;
+        }
+        try {
+            return redisTemplate.opsForValue().get(key);
+        } catch (IllegalStateException e) {
+            if (!shuttingDown.get()) {
+                log.warn("[LS-REDIS] snapshot 조회 스킵: key={}, reason={}", key, e.getMessage());
+            }
+            return null;
+        }
+    }
+
+    private void evictLastValue(String subscriptionKey, String trCd, String key) {
+        if (PERMANENT_SUBSCRIPTIONS.contains(subscriptionKey)) {
+            return;
+        }
+        String topicPrefix = TR_TOPIC_MAP.get(trCd);
+        if (topicPrefix != null) {
+            lastValues.remove(topicPrefix + key);
+        }
     }
 }
