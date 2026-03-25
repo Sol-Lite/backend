@@ -34,7 +34,7 @@ public class OrderMatchingService {
     /**
      * MarketTickEvent 수신 시 해당 종목의 PENDING LIMIT 주문을 매칭한다.
      */
-    @Async
+    @Async("orderMatchingExecutor")
     @EventListener
     public void onMarketTick(MarketTickEvent event) {
         List<String> marketTypes = resolveMarketTypes(event.trCd());
