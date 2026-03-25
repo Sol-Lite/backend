@@ -27,8 +27,10 @@ class LsIndexServiceImpl implements IndexService {
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
     private static final long T3521_MIN_INTERVAL_MS = 1100;
     private static final long T1511_MIN_INTERVAL_MS = 1100;
-    private volatile long lastT3521CallMs = 0;
-    private volatile long lastT1511CallMs = 0;
+    private long lastT3521CallMs = 0;
+    private long lastT1511CallMs = 0;
+    private final Object t3521RateLock = new Object();
+    private final Object t1511RateLock = new Object();
 
     private static final List<IndexMeta> INDICES = List.of(
             new IndexMeta("001",      "KOSPI",   "/topic/index/domestic/001",     "domestic", null),
@@ -104,11 +106,14 @@ class LsIndexServiceImpl implements IndexService {
 
     private IndexResponse fromT3521(IndexMeta meta) {
         try {
-            long elapsed = System.currentTimeMillis() - lastT3521CallMs;
-            if (lastT3521CallMs > 0 && elapsed < T3521_MIN_INTERVAL_MS) {
-                Thread.sleep(T3521_MIN_INTERVAL_MS - elapsed);
+            synchronized (t3521RateLock) {
+                long now = System.currentTimeMillis();
+                long elapsed = now - lastT3521CallMs;
+                if (lastT3521CallMs > 0 && elapsed < T3521_MIN_INTERVAL_MS) {
+                    Thread.sleep(T3521_MIN_INTERVAL_MS - elapsed);
+                }
+                lastT3521CallMs = System.currentTimeMillis();
             }
-            lastT3521CallMs = System.currentTimeMillis();
 
             String token = tokenService.getAccessToken();
             record InBlock(String kind, String symbol) {}
@@ -157,11 +162,14 @@ class LsIndexServiceImpl implements IndexService {
 
     private IndexResponse fromT1511(IndexMeta meta) {
         try {
-            long elapsed = System.currentTimeMillis() - lastT1511CallMs;
-            if (lastT1511CallMs > 0 && elapsed < T1511_MIN_INTERVAL_MS) {
-                Thread.sleep(T1511_MIN_INTERVAL_MS - elapsed);
+            synchronized (t1511RateLock) {
+                long now = System.currentTimeMillis();
+                long elapsed = now - lastT1511CallMs;
+                if (lastT1511CallMs > 0 && elapsed < T1511_MIN_INTERVAL_MS) {
+                    Thread.sleep(T1511_MIN_INTERVAL_MS - elapsed);
+                }
+                lastT1511CallMs = System.currentTimeMillis();
             }
-            lastT1511CallMs = System.currentTimeMillis();
 
             String token = tokenService.getAccessToken();
             record InBlock(String upcode) {}

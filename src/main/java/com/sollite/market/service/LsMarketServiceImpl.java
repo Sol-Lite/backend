@@ -648,7 +648,7 @@ class LsMarketServiceImpl implements MarketService {
             log.warn("[MinuteGapFill] 비동기 gap fill 실패, 기존 DB 데이터 유지: stockCode={}, from={}, limit={}",
                     stockCode, fetchFrom, queryLimit, e);
         } finally {
-            minuteGapLocks.remove(cacheKey, lock);
+            minuteGapLocks.remove(cacheKey);
             minuteGapRefreshInFlight.remove(cacheKey);
         }
     }
