@@ -394,7 +394,8 @@ class AccountServiceTest {
             given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, RoundStatus.ACTIVE))
                     .willReturn(Optional.of(currentRound));
 
-            accountService.closeAccount(1L, "1234");
+            AccountService.CloseContext closeContext = accountService.validateAndGetCloseContext(1L, "1234");
+            accountService.executeClose(closeContext);
 
             assertThat(account.isActive()).isFalse();
             assertThat(currentRound.getRoundStatus()).isEqualTo(RoundStatus.CLOSED);
@@ -410,7 +411,7 @@ class AccountServiceTest {
             given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
             given(passwordEncoder.matches("9999", "encodedPin")).willReturn(false);
 
-            assertThatThrownBy(() -> accountService.closeAccount(1L, "9999"))
+            assertThatThrownBy(() -> accountService.validateAndGetCloseContext(1L, "9999"))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(AccountErrorCode.INVALID_PIN));
@@ -428,7 +429,7 @@ class AccountServiceTest {
             given(simulationRoundRepository.findByAccount_AccountIdAndRoundStatus(1L, RoundStatus.ACTIVE))
                     .willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> accountService.closeAccount(1L, "1234"))
+            assertThatThrownBy(() -> accountService.validateAndGetCloseContext(1L, "1234"))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
@@ -442,7 +443,7 @@ class AccountServiceTest {
             account.close();
             given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.of(account));
 
-            assertThatThrownBy(() -> accountService.closeAccount(1L, "1234"))
+            assertThatThrownBy(() -> accountService.validateAndGetCloseContext(1L, "1234"))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(AccountErrorCode.ACCOUNT_NOT_ACTIVE));
@@ -453,7 +454,7 @@ class AccountServiceTest {
         void closeAccount_fail_noAccount() {
             given(accountRepository.findByUserIdForUpdate(1L)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> accountService.closeAccount(1L, "1234"))
+            assertThatThrownBy(() -> accountService.validateAndGetCloseContext(1L, "1234"))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(AccountErrorCode.ACCOUNT_NOT_FOUND));

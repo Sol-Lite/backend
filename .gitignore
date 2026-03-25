@@ -47,5 +47,6 @@ application-local.yml
 
 ### Data ###
 src/main/resources/data/*.csv
+!src/main/resources/data/kospi200_targets.csv
 ### Claude ###
 CLAUDE.md

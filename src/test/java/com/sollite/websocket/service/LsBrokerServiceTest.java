@@ -52,12 +52,14 @@ class LsBrokerServiceTest {
     private Map<String, AtomicInteger> subscriberCount;
     private Set<String> activeSubscriptions;
     private AtomicBoolean connected;
+    private Map<String, String> lastValues;
 
     @BeforeEach
     void setUp() throws Exception {
         subscriberCount = getField("subscriberCount");
         activeSubscriptions = getField("activeSubscriptions");
         connected = getField("connected");
+        lastValues = getField("lastValues");
     }
 
     @SuppressWarnings("unchecked")
@@ -102,6 +104,17 @@ class LsBrokerServiceTest {
             assertThat(subscriberCount.get("UH1:005930").get()).isEqualTo(1);
             assertThat(subscriberCount.get("GSH:TSLA").get()).isEqualTo(1);
             assertThat(subscriberCount.get("GSC:AAPL").get()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("lastValue가 있어도 토픽 전체에 재방송하지 않는다")
+        void existingLastValue_doesNotBroadcastOnSubscribe() {
+            lastValues.put("/topic/stock/trade/005930", "{\"price\":\"75000\"}");
+
+            lsBrokerService.subscribe("US3", "005930");
+
+            verify(messagingTemplate, org.mockito.Mockito.never())
+                    .convertAndSend("/topic/stock/trade/005930", "{\"price\":\"75000\"}");
         }
     }
 
@@ -221,7 +234,7 @@ class LsBrokerServiceTest {
         @Test
         @DisplayName("심볼만 들어오면 종목 테이블의 거래소코드를 붙여 18자리 tr_key를 만든다")
         void symbolOnlyKey_resolvesExchangeCodeFromInstrument() throws Exception {
-            given(instrumentRepository.findFirstExchangeCodeByStockCode("TSLA")).willReturn(Optional.of("82"));
+            given(instrumentRepository.findExchangeCodesByStockCode("TSLA")).willReturn(java.util.List.of("82"));
 
             Method formatTrKey = LsBrokerService.class.getDeclaredMethod("formatTrKey", String.class, String.class);
             formatTrKey.setAccessible(true);

@@ -1,41 +1,47 @@
 package com.sollite.market.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.global.exception.BusinessException;
+import com.sollite.global.service.LsTokenService;
 import com.sollite.market.domain.entity.MarketDailyCandle;
 import com.sollite.market.domain.entity.MarketMinuteCandle;
 import com.sollite.market.domain.repository.MarketDailyCandleRepository;
 import com.sollite.market.domain.repository.MarketMinuteCandleRepository;
 import com.sollite.market.dto.*;
-import com.sollite.global.service.LsTokenService;
 import com.sollite.market.exception.MarketErrorCode;
+import jakarta.annotation.PreDestroy;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.springframework.data.domain.PageRequest;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-
-import java.time.LocalDate;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.util.List;
 
 @Slf4j
 @Service
@@ -55,6 +61,34 @@ class LsMarketServiceImpl implements MarketService {
     private static final String INTEGRATED_EXCHANGE_SCOPE = "U";
     private final Map<String, MinuteGapCacheEntry> minuteGapCache = new ConcurrentHashMap<>();
     private final Map<String, Object> minuteGapLocks = new ConcurrentHashMap<>();
+    private final Set<String> minuteGapRefreshInFlight = ConcurrentHashMap.newKeySet();
+    private final ExecutorService minuteGapRefreshExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "market-minute-gap-refresh");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private Clock clock = Clock.systemDefaultZone();
+
+    @PreDestroy
+    void destroy() {
+        minuteGapRefreshExecutor.shutdownNow();
+    }
+
+    void setClock(Clock clock) {
+        this.clock = clock;
+    }
+
+    private LocalDate currentDate() {
+        return LocalDate.now(clock);
+    }
+
+    private LocalTime currentTime() {
+        return LocalTime.now(clock);
+    }
+
+    private LocalDateTime currentDateTime() {
+        return LocalDateTime.now(clock);
+    }
 
     @Override
     @Cacheable(cacheNames = "market:price", key = "#stockCode", sync = true)
@@ -199,7 +233,7 @@ class LsMarketServiceImpl implements MarketService {
             return toDailyPriceResponse(dbCandle.get());
         }
 
-        if (date.equals(LocalDate.now())) {
+        if (date.equals(currentDate())) {
             return buildIntradayDailyPoint(stockCode, target.instrumentId(), date)
                     .map(point -> new DailyPriceResponse(
                             point.date(),
@@ -393,7 +427,7 @@ class LsMarketServiceImpl implements MarketService {
                     c.getVolume()));
         }
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = currentDate();
         boolean includesToday = !today.isBefore(startDate) && !today.isAfter(endDate);
         boolean hasTodayInDb = dailyPoints.stream().anyMatch(point -> point.date().equals(today));
         if (includesToday && !hasTodayInDb) {
@@ -458,7 +492,7 @@ class LsMarketServiceImpl implements MarketService {
                 : dbCandles.get(dbCandles.size() - 1).getCandleAt();
 
         // 장중에만 오늘치 gap fill 시도
-        LocalDate today = LocalDate.now();
+        LocalDate today = currentDate();
         List<MinuteChartResponse.MinuteChartDataPoint> gapPoints =
                 isMarketOpen(today) ? fetchTodayMinuteGap(stockCode, lastDbAt, today) : List.of();
 
@@ -497,17 +531,17 @@ class LsMarketServiceImpl implements MarketService {
 
     private boolean isMarketOpen(LocalDate date) {
         if (!isWeekday(date)) return false;
-        LocalTime now = LocalTime.now();
+        LocalTime now = currentTime();
         return now.isAfter(MARKET_OPEN) && now.isBefore(MARKET_CLOSE);
     }
 
     private List<MinuteChartResponse.MinuteChartDataPoint> fetchTodayMinuteGap(
             String stockCode, LocalDateTime lastDbAt, LocalDate today) {
-        if (!today.equals(LocalDate.now())) {
+        if (!today.equals(currentDate())) {
             return List.of();
         }
 
-        LocalDateTime now = LocalDateTime.now().withSecond(0).withNano(0);
+        LocalDateTime now = currentDateTime().withSecond(0).withNano(0);
         LocalDateTime marketOpenAt = today.atTime(MARKET_OPEN);
         LocalDateTime fetchFrom = resolveMinuteGapStart(lastDbAt, marketOpenAt);
         if (fetchFrom.isAfter(now)) {
@@ -519,17 +553,10 @@ class LsMarketServiceImpl implements MarketService {
             return List.of();
         }
 
-        try {
-            return getCachedMinuteGapPoints(stockCode, today, now, queryLimit).stream()
-                    .filter(p -> p.datetime().toLocalDate().equals(today))
-                    .filter(p -> !p.datetime().isBefore(fetchFrom))
-                    .toList();
-
-        } catch (Exception e) {
-            log.warn("[MinuteGapFill] gap fill 실패, DB 데이터만 반환: stockCode={}, from={}, limit={}",
-                    stockCode, fetchFrom, queryLimit, e);
-            return List.of();
-        }
+        return getAvailableMinuteGapPoints(stockCode, today, fetchFrom, now, queryLimit).stream()
+                .filter(p -> p.datetime().toLocalDate().equals(today))
+                .filter(p -> !p.datetime().isBefore(fetchFrom))
+                .toList();
     }
 
     private LocalDateTime resolveMinuteGapStart(LocalDateTime lastDbAt, LocalDateTime marketOpenAt) {
@@ -548,40 +575,82 @@ class LsMarketServiceImpl implements MarketService {
         return clampHistoryLimit((int) Math.max(requiredPoints, 1L));
     }
 
-    private List<MinuteChartResponse.MinuteChartDataPoint> getCachedMinuteGapPoints(
+    private List<MinuteChartResponse.MinuteChartDataPoint> getAvailableMinuteGapPoints(
             String stockCode,
             LocalDate today,
+            LocalDateTime fetchFrom,
             LocalDateTime now,
             int queryLimit
     ) {
         String cacheKey = stockCode + ":" + today;
         MinuteGapCacheEntry cached = minuteGapCache.get(cacheKey);
-        if (cached != null && !isMinuteGapCacheExpired(cached, now) && cached.points().size() >= queryLimit) {
+        if (cached != null) {
+            if (isMinuteGapCacheExpired(cached, now) || cached.points().size() < queryLimit) {
+                requestMinuteGapRefreshAsync(stockCode, today, fetchFrom, queryLimit);
+            }
             return cached.points();
         }
 
-        Object lock = minuteGapLocks.computeIfAbsent(cacheKey, key -> new Object());
-        synchronized (lock) {
-            cached = minuteGapCache.get(cacheKey);
-            if (cached != null && !isMinuteGapCacheExpired(cached, now) && cached.points().size() >= queryLimit) {
-                return cached.points();
-            }
-
-            List<MinuteChartResponse.MinuteChartDataPoint> points =
-                    getMinuteChartHistoryFromLs(stockCode, 1, now.plusMinutes(1), queryLimit, false)
-                            .data().stream()
-                            .filter(point -> point.datetime().toLocalDate().equals(today))
-                            .sorted(Comparator.comparing(MinuteChartResponse.MinuteChartDataPoint::datetime))
-                            .toList();
-
-            minuteGapCache.put(cacheKey, new MinuteGapCacheEntry(now, points));
-            minuteGapLocks.remove(cacheKey);
-            return points;
-        }
+        requestMinuteGapRefreshAsync(stockCode, today, fetchFrom, queryLimit);
+        return List.of();
     }
 
     private boolean isMinuteGapCacheExpired(MinuteGapCacheEntry cached, LocalDateTime now) {
         return cached.cachedAt().plus(MINUTE_GAP_CACHE_TTL).isBefore(now);
+    }
+
+    void requestMinuteGapRefreshAsync(
+            String stockCode,
+            LocalDate today,
+            LocalDateTime fetchFrom,
+            int queryLimit
+    ) {
+        String cacheKey = stockCode + ":" + today;
+        if (!minuteGapRefreshInFlight.add(cacheKey)) {
+            return;
+        }
+
+        try {
+            minuteGapRefreshExecutor.execute(() -> refreshMinuteGapCache(cacheKey, stockCode, today, fetchFrom, queryLimit));
+        } catch (RejectedExecutionException e) {
+            minuteGapRefreshInFlight.remove(cacheKey);
+            log.debug("[MinuteGapFill] refresh executor 종료 상태: stockCode={}, cacheKey={}", stockCode, cacheKey);
+        }
+    }
+
+    private void refreshMinuteGapCache(
+            String cacheKey,
+            String stockCode,
+            LocalDate today,
+            LocalDateTime fetchFrom,
+            int queryLimit
+    ) {
+        Object lock = minuteGapLocks.computeIfAbsent(cacheKey, key -> new Object());
+        try {
+            synchronized (lock) {
+                LocalDateTime now = currentDateTime().withSecond(0).withNano(0);
+                MinuteGapCacheEntry cached = minuteGapCache.get(cacheKey);
+                if (cached != null && !isMinuteGapCacheExpired(cached, now) && cached.points().size() >= queryLimit) {
+                    return;
+                }
+
+                int refreshedLimit = Math.max(queryLimit, calculateMinuteGapQueryLimit(fetchFrom, now));
+                List<MinuteChartResponse.MinuteChartDataPoint> points =
+                        getMinuteChartHistoryFromLs(stockCode, 1, now.plusMinutes(1), refreshedLimit, false)
+                                .data().stream()
+                                .filter(point -> point.datetime().toLocalDate().equals(today))
+                                .sorted(Comparator.comparing(MinuteChartResponse.MinuteChartDataPoint::datetime))
+                                .toList();
+
+                minuteGapCache.put(cacheKey, new MinuteGapCacheEntry(now, points));
+            }
+        } catch (Exception e) {
+            log.warn("[MinuteGapFill] 비동기 gap fill 실패, 기존 DB 데이터 유지: stockCode={}, from={}, limit={}",
+                    stockCode, fetchFrom, queryLimit, e);
+        } finally {
+            minuteGapLocks.remove(cacheKey);
+            minuteGapRefreshInFlight.remove(cacheKey);
+        }
     }
 
     private List<MinuteChartResponse.MinuteChartDataPoint> aggregateMinuteCandles(
@@ -613,12 +682,12 @@ class LsMarketServiceImpl implements MarketService {
             Long instrumentId,
             LocalDate date
     ) {
-        if (!date.equals(LocalDate.now())) {
+        if (!date.equals(currentDate())) {
             return Optional.empty();
         }
 
         LocalDateTime startAt = date.atStartOfDay();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = currentDateTime();
 
         List<MarketMinuteCandle> dbMinuteCandles = marketMinuteCandleRepository.findByRange(
                 instrumentId,
@@ -1047,8 +1116,8 @@ class LsMarketServiceImpl implements MarketService {
             record LsReq(LsReqBody t1717InBlock) {}
 
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyyMMdd");
-            String today = LocalDate.now().format(fmt);
-            String fromdt = LocalDate.now().minusDays(30).format(fmt);
+            String today = currentDate().format(fmt);
+            String fromdt = currentDate().minusDays(30).format(fmt);
 
             String raw = lsWebClient.post()
                     .uri("/stock/frgr-itt")
@@ -1110,12 +1179,13 @@ class LsMarketServiceImpl implements MarketService {
     @Override
     @Cacheable(cacheNames = "market:ranking", key = "#type + ':' + #market", sync = true)
     public List<StockRankingItem> getRanking(String type, String market) {
+        if (!supportsRankingMarket(market)) {
+            log.info("지원하지 않는 ranking market 요청 - 빈 결과 반환: market={}", market);
+            return List.of();
+        }
+
         String token = tokenService.getAccessToken();
-        String gubun = switch (market) {
-            case "kospi" -> "1";
-            case "kosdaq" -> "2";
-            default -> "0";
-        };
+        String gubun = resolveRankingMarketCode(market);
 
         try {
             return switch (type) {
@@ -1131,6 +1201,34 @@ class LsMarketServiceImpl implements MarketService {
             log.error("순위 조회 중 예외 발생: type={}, market={}", type, market, e);
             throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
         }
+    }
+
+    static boolean supportsRankingMarket(String market) {
+        String normalized = normalizeRankingMarket(market);
+        return !"unsupported".equals(normalized);
+    }
+
+    static String resolveRankingMarketCode(String market) {
+        String normalized = normalizeRankingMarket(market);
+        return switch (normalized) {
+            case "kospi" -> "1";
+            case "kosdaq" -> "2";
+            default -> "0";
+        };
+    }
+
+    private static String normalizeRankingMarket(String market) {
+        if (market == null || market.isBlank()) {
+            return "all";
+        }
+
+        return switch (market.trim().toLowerCase(Locale.ROOT)) {
+            case "all", "domestic", "kr" -> "all";
+            case "kospi" -> "kospi";
+            case "kosdaq" -> "kosdaq";
+            case "us", "foreign", "overseas" -> "unsupported";
+            default -> "all";
+        };
     }
 
     private List<StockRankingItem> getRankingByTradingValue(String token, String gubun) throws Exception {
