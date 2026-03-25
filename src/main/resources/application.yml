@@ -121,7 +121,7 @@ ls:
     appsecret: ${LS_APPSECRET}
     mac-address: ${LS_MAC_ADDRESS:}
   ws:
-    url: wss://openapi.ls-sec.co.kr:29443/websocket
+    url: wss://openapi.ls-sec.co.kr:9443/websocket
 ---
 spring:
   config:

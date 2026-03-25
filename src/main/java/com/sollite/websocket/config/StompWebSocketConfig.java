@@ -56,9 +56,14 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
                         token = token.substring(7);
                     }
 
-                    if (token == null || !jwtTokenProvider.validateToken(token)) {
-                        log.warn("WebSocket 연결 거부: 유효하지 않은 토큰");
-                        throw new IllegalArgumentException("유효하지 않은 토큰");
+                    if (token == null || token.isBlank()) {
+                        log.info("WebSocket 익명 연결 허용");
+                        return message;
+                    }
+
+                    if (!jwtTokenProvider.validateToken(token)) {
+                        log.warn("WebSocket 토큰 검증 실패 → 연결 거부");
+                        throw new org.springframework.messaging.MessageDeliveryException("Invalid token");
                     }
 
                     Long userId = jwtTokenProvider.getUserIdFromToken(token);

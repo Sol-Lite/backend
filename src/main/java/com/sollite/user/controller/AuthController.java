@@ -73,7 +73,7 @@ public class AuthController {
         String token = userService.sendVerificationEmail(request);
         return ResponseEntity.ok(new EmailVerifyResponse(
                 "인증 메일이 발송되었습니다.",
-                1800,
+                600,
                 token
         ));
     }

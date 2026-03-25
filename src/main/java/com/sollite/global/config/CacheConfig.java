@@ -52,11 +52,8 @@ public class CacheConfig {
                 Map.entry("market:finance",      base.entryTtl(Duration.ofHours(1))),
                 Map.entry("market:opinion",      base.entryTtl(Duration.ofHours(1))),
                 Map.entry("market:investor",     base.entryTtl(Duration.ofHours(1))),
-<<<<<<< fix/auth-redis
                 Map.entry("market:indices",      base.entryTtl(Duration.ofSeconds(3))),
-=======
                 Map.entry("market:info",         base.entryTtl(Duration.ofHours(24))),
->>>>>>> dev
                 // 국내주식 순위
                 Map.entry("market:ranking",          base.entryTtl(Duration.ofSeconds(30))),
                 // 해외주식

@@ -10,6 +10,7 @@ import com.sollite.global.service.LsTokenService;
 import com.sollite.market.exception.MarketErrorCode;
 
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.data.domain.PageRequest;
 
@@ -41,6 +43,8 @@ import java.util.List;
 class LsMarketServiceImpl implements MarketService {
     private static final int MAX_HISTORY_LIMIT = 500;
     private static final int DEFAULT_TARGET_BARS = 500;
+    private static final int MINUTE_GAP_QUERY_BUFFER = 2;
+    private static final Duration MINUTE_GAP_CACHE_TTL = Duration.ofSeconds(3);
     private final WebClient lsWebClient;
     private final LsTokenService tokenService;
     private final ObjectMapper objectMapper;
@@ -49,6 +53,8 @@ class LsMarketServiceImpl implements MarketService {
     private final MarketMinuteCandleRepository marketMinuteCandleRepository;
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
     private static final String INTEGRATED_EXCHANGE_SCOPE = "U";
+    private final Map<String, MinuteGapCacheEntry> minuteGapCache = new ConcurrentHashMap<>();
+    private final Map<String, Object> minuteGapLocks = new ConcurrentHashMap<>();
 
     @Override
     @Cacheable(cacheNames = "market:price", key = "#stockCode", sync = true)
@@ -434,6 +440,11 @@ class LsMarketServiceImpl implements MarketService {
     private static final LocalTime MARKET_OPEN  = LocalTime.of(9, 0);
     private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 35);
 
+    private record MinuteGapCacheEntry(
+            LocalDateTime cachedAt,
+            List<MinuteChartResponse.MinuteChartDataPoint> points
+    ) {}
+
     private MinuteChartResponse getMinuteChartFromDb(String stockCode, int ncnt) {
         Kospi200Target target = kospi200TargetService.findByStockCode(stockCode).orElseThrow();
 
@@ -492,17 +503,85 @@ class LsMarketServiceImpl implements MarketService {
 
     private List<MinuteChartResponse.MinuteChartDataPoint> fetchTodayMinuteGap(
             String stockCode, LocalDateTime lastDbAt, LocalDate today) {
+        if (!today.equals(LocalDate.now())) {
+            return List.of();
+        }
+
+        LocalDateTime now = LocalDateTime.now().withSecond(0).withNano(0);
+        LocalDateTime marketOpenAt = today.atTime(MARKET_OPEN);
+        LocalDateTime fetchFrom = resolveMinuteGapStart(lastDbAt, marketOpenAt);
+        if (fetchFrom.isAfter(now)) {
+            return List.of();
+        }
+
+        int queryLimit = calculateMinuteGapQueryLimit(fetchFrom, now);
+        if (queryLimit <= 0) {
+            return List.of();
+        }
+
         try {
-            return getMinuteChartHistoryFromLs(stockCode, 1, LocalDateTime.now().plusMinutes(1), MAX_HISTORY_LIMIT, false)
-                    .data().stream()
+            return getCachedMinuteGapPoints(stockCode, today, now, queryLimit).stream()
                     .filter(p -> p.datetime().toLocalDate().equals(today))
-                    .filter(p -> lastDbAt == null || p.datetime().isAfter(lastDbAt))
+                    .filter(p -> !p.datetime().isBefore(fetchFrom))
                     .toList();
 
         } catch (Exception e) {
-            log.warn("[MinuteGapFill] gap fill 실패, DB 데이터만 반환: stockCode={}", stockCode, e);
+            log.warn("[MinuteGapFill] gap fill 실패, DB 데이터만 반환: stockCode={}, from={}, limit={}",
+                    stockCode, fetchFrom, queryLimit, e);
             return List.of();
         }
+    }
+
+    private LocalDateTime resolveMinuteGapStart(LocalDateTime lastDbAt, LocalDateTime marketOpenAt) {
+        if (lastDbAt == null) {
+            return marketOpenAt;
+        }
+        if (lastDbAt.isBefore(marketOpenAt)) {
+            return marketOpenAt;
+        }
+        return lastDbAt.plusMinutes(1);
+    }
+
+    private int calculateMinuteGapQueryLimit(LocalDateTime fetchFrom, LocalDateTime now) {
+        long missingMinutes = Duration.between(fetchFrom, now).toMinutes();
+        long requiredPoints = missingMinutes + 1L + MINUTE_GAP_QUERY_BUFFER;
+        return clampHistoryLimit((int) Math.max(requiredPoints, 1L));
+    }
+
+    private List<MinuteChartResponse.MinuteChartDataPoint> getCachedMinuteGapPoints(
+            String stockCode,
+            LocalDate today,
+            LocalDateTime now,
+            int queryLimit
+    ) {
+        String cacheKey = stockCode + ":" + today;
+        MinuteGapCacheEntry cached = minuteGapCache.get(cacheKey);
+        if (cached != null && !isMinuteGapCacheExpired(cached, now) && cached.points().size() >= queryLimit) {
+            return cached.points();
+        }
+
+        Object lock = minuteGapLocks.computeIfAbsent(cacheKey, key -> new Object());
+        synchronized (lock) {
+            cached = minuteGapCache.get(cacheKey);
+            if (cached != null && !isMinuteGapCacheExpired(cached, now) && cached.points().size() >= queryLimit) {
+                return cached.points();
+            }
+
+            List<MinuteChartResponse.MinuteChartDataPoint> points =
+                    getMinuteChartHistoryFromLs(stockCode, 1, now.plusMinutes(1), queryLimit, false)
+                            .data().stream()
+                            .filter(point -> point.datetime().toLocalDate().equals(today))
+                            .sorted(Comparator.comparing(MinuteChartResponse.MinuteChartDataPoint::datetime))
+                            .toList();
+
+            minuteGapCache.put(cacheKey, new MinuteGapCacheEntry(now, points));
+            minuteGapLocks.remove(cacheKey);
+            return points;
+        }
+    }
+
+    private boolean isMinuteGapCacheExpired(MinuteGapCacheEntry cached, LocalDateTime now) {
+        return cached.cachedAt().plus(MINUTE_GAP_CACHE_TTL).isBefore(now);
     }
 
     private List<MinuteChartResponse.MinuteChartDataPoint> aggregateMinuteCandles(

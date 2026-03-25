@@ -44,9 +44,14 @@ public class StompSubscriptionListener {
 
         log.info("[STOMP] SUBSCRIBE 파싱 성공: trCd={}, key={}", info.trCd(), info.key());
 
-        sessionSubscriptions
-                .computeIfAbsent(sessionId, k -> new ConcurrentHashMap<>())
-                .put(subscriptionId, info);
+        Map<String, SubscriptionInfo> subscriptions =
+                sessionSubscriptions.computeIfAbsent(sessionId, k -> new ConcurrentHashMap<>());
+        SubscriptionInfo previous = subscriptions.put(subscriptionId, info);
+        if (previous != null && (!previous.trCd().equals(info.trCd()) || !previous.key().equals(info.key()))) {
+            log.info("[STOMP] SUBSCRIBE 교체 감지: sessionId={}, oldTrCd={}, oldKey={}",
+                    sessionId, previous.trCd(), previous.key());
+            lsBrokerService.unsubscribe(previous.trCd(), previous.key());
+        }
 
         lsBrokerService.subscribe(info.trCd(), info.key());
     }
@@ -64,6 +69,9 @@ public class StompSubscriptionListener {
         if (info != null) {
             log.info("[STOMP] UNSUBSCRIBE: sessionId={}, trCd={}, key={}", sessionId, info.trCd(), info.key());
             lsBrokerService.unsubscribe(info.trCd(), info.key());
+        }
+        if (subs.isEmpty()) {
+            sessionSubscriptions.remove(sessionId, subs);
         }
     }
 

@@ -36,6 +36,7 @@ public class OrderWaitingSubscriptionManager {
 
     private final LsBrokerService lsBrokerService;
     private final OrderRepository orderRepository;
+    private final ActiveOrderRegistry activeOrderRegistry;
 
     /**
      * orderId → "trCd:stockCode" 매핑
@@ -131,8 +132,14 @@ public class OrderWaitingSubscriptionManager {
             log.info("[ORDER-SUB] hold 스킵 (커밋 전 release됨) — orderId={}", orderId);
             return;
         }
-        lsBrokerService.subscribe(trCd, stockCode);
-        subscribed.add(orderId);
+        activeOrderRegistry.register(trCd, stockCode);
+        try {
+            lsBrokerService.subscribe(trCd, stockCode);
+            subscribed.add(orderId);
+        } catch (Exception e) {
+            activeOrderRegistry.unregister(trCd, stockCode);
+            throw e;
+        }
         log.info("[ORDER-SUB] hold — orderId={}, trCd={}, stockCode={}", orderId, trCd, stockCode);
     }
 
@@ -144,6 +151,7 @@ public class OrderWaitingSubscriptionManager {
     private void executeRelease(Long orderId, String trCd, String stockCode) {
         if (subscribed.remove(orderId)) {
             lsBrokerService.unsubscribe(trCd, stockCode);
+            activeOrderRegistry.unregister(trCd, stockCode);
             log.info("[ORDER-SUB] release — orderId={}, trCd={}, stockCode={}", orderId, trCd, stockCode);
         } else {
             log.debug("[ORDER-SUB] release 스킵 (구독 실행 전 release됨) — orderId={}", orderId);
@@ -170,8 +178,16 @@ public class OrderWaitingSubscriptionManager {
             String key = trCd + ":" + stockCode;
 
             orderToKey.put(order.getOrderId(), key);
-            lsBrokerService.subscribe(trCd, stockCode);
-            subscribed.add(order.getOrderId());
+            activeOrderRegistry.register(trCd, stockCode);
+            try {
+                lsBrokerService.subscribe(trCd, stockCode);
+                subscribed.add(order.getOrderId());
+            } catch (Exception e) {
+                activeOrderRegistry.unregister(trCd, stockCode);
+                orderToKey.remove(order.getOrderId());
+                log.error("[ORDER-SUB] 복구 중 LS 구독 실패 — orderId={}, error={}", order.getOrderId(), e.getMessage());
+                continue;
+            }
             log.info("[ORDER-SUB] hold (복구) — orderId={}, trCd={}, stockCode={}", order.getOrderId(), trCd, stockCode);
             recovered++;
         }

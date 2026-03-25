@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.util.AbstractMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -37,7 +38,7 @@ public class PriceLookupService {
 
     private static final int PARALLELISM = 6;
     private static final Executor PRICE_EXECUTOR = Executors.newFixedThreadPool(PARALLELISM,
-            r -> Thread.ofVirtual().name("price-lookup-", 0).unstarted(r));
+            r -> new Thread(r, "price-lookup"));
 
     // ── 국내 ──────────────────────────────────────────────────────────────────
 
@@ -54,9 +55,10 @@ public class PriceLookupService {
     }
 
     public Map<String, BigDecimal> resolveDomesticPrices(List<String> stockCodes) {
-        return resolveParallel(stockCodes.stream()
-                .map(code -> Map.entry(code, (String) null))
-                .toList(), domestic -> resolveDomesticPrice(domestic.getKey()));
+        List<? extends Map.Entry<String, String>> requests = stockCodes.stream()
+                .map(code -> new AbstractMap.SimpleEntry<String, String>(code, null))
+                .toList();
+        return resolveParallel(requests, domestic -> resolveDomesticPrice(domestic.getKey()));
     }
 
     // ── 해외 ──────────────────────────────────────────────────────────────────
@@ -84,16 +86,16 @@ public class PriceLookupService {
     // ── 내부 ──────────────────────────────────────────────────────────────────
 
     private <T> Map<String, BigDecimal> resolveParallel(
-            List<Map.Entry<String, T>> entries,
+            List<? extends Map.Entry<String, T>> entries,
             java.util.function.Function<Map.Entry<String, T>, BigDecimal> resolver) {
 
         List<CompletableFuture<Map.Entry<String, BigDecimal>>> futures = entries.stream()
                 .map(entry -> CompletableFuture
                         .supplyAsync(() -> {
                             BigDecimal price = resolver.apply(entry);
-                            return Map.entry(entry.getKey(), price);
+                            return (Map.Entry<String, BigDecimal>) new AbstractMap.SimpleEntry<>(entry.getKey(), price);
                         }, PRICE_EXECUTOR)
-                        .exceptionally(e -> Map.entry(entry.getKey(), null)))
+                        .exceptionally(e -> new AbstractMap.SimpleEntry<>(entry.getKey(), null)))
                 .toList();
 
         return futures.stream()
