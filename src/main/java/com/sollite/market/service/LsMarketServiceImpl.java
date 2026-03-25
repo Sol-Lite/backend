@@ -575,6 +575,7 @@ class LsMarketServiceImpl implements MarketService {
                             .toList();
 
             minuteGapCache.put(cacheKey, new MinuteGapCacheEntry(now, points));
+            minuteGapLocks.remove(cacheKey);
             return points;
         }
     }
