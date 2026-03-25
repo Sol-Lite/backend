@@ -66,6 +66,8 @@ server:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+    persist-authorization: true
+    custom-js-url: /swagger-custom.js
   api-docs:
     path: /v3/api-docs
 
