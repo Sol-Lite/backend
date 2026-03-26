@@ -257,9 +257,11 @@ public class BalanceService {
         for (Holding h : holdings) {
             String currency = h.getInstrument().getCurrencyCode();
             long qty = h.getHoldingQuantity();
-            BigDecimal buyKrw = toKrw(currency,
-                    h.getAvgBuyPrice().multiply(BigDecimal.valueOf(qty)).multiply(h.getAvgBuyExchangeRate()),
-                    usdKrwRate);
+            // 매수 원가(KRW) = avgBuyPrice × qty × avgBuyExchangeRate (USD 종목은 이미 KRW 환산값)
+            BigDecimal buyKrw = h.getAvgBuyPrice()
+                    .multiply(BigDecimal.valueOf(qty))
+                    .multiply(h.getAvgBuyExchangeRate())
+                    .setScale(0, RoundingMode.HALF_UP);
             BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
             BigDecimal evalKrw = price != null
                     ? toKrw(currency, price.multiply(BigDecimal.valueOf(qty)), usdKrwRate)
@@ -323,9 +325,13 @@ public class BalanceService {
             String currency = h.getInstrument().getCurrencyCode();
             long qty = h.getHoldingQuantity();
             BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
+            BigDecimal fallbackBuyKrw = h.getAvgBuyPrice()
+                    .multiply(BigDecimal.valueOf(qty))
+                    .multiply(h.getAvgBuyExchangeRate())
+                    .setScale(0, RoundingMode.HALF_UP);
             BigDecimal evalKrw = price != null
                     ? toKrw(currency, price.multiply(BigDecimal.valueOf(qty)), usdKrwRate)
-                    : toKrw(currency, h.getAvgBuyPrice().multiply(BigDecimal.valueOf(qty)).multiply(h.getAvgBuyExchangeRate()), usdKrwRate);
+                    : fallbackBuyKrw;
             totalStockEvaluation = totalStockEvaluation.add(evalKrw);
         }
 
@@ -350,9 +356,10 @@ public class BalanceService {
             String currency = h.getInstrument().getCurrencyCode();
             long qty = h.getHoldingQuantity();
             BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
-            BigDecimal buyKrw = toKrw(currency,
-                    h.getAvgBuyPrice().multiply(BigDecimal.valueOf(qty)).multiply(h.getAvgBuyExchangeRate()),
-                    usdKrwRate);
+            BigDecimal buyKrw = h.getAvgBuyPrice()
+                    .multiply(BigDecimal.valueOf(qty))
+                    .multiply(h.getAvgBuyExchangeRate())
+                    .setScale(0, RoundingMode.HALF_UP);
             BigDecimal evalKrw = price != null
                     ? toKrw(currency, price.multiply(BigDecimal.valueOf(qty)), usdKrwRate)
                     : buyKrw;
