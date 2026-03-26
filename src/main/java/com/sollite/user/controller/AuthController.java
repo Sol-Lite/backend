@@ -6,6 +6,7 @@ import com.sollite.user.dto.*;
 import com.sollite.user.exception.UserErrorCode;
 import com.sollite.user.service.SignupFacade;
 import com.sollite.user.service.UserService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -159,11 +160,21 @@ public class AuthController {
     @PostMapping("/logout")
     public ResponseEntity<MessageResponse> logout(Authentication authentication,
                                                    @CookieValue(name = "refreshToken", required = false) String refreshToken,
+                                                   HttpServletRequest httpRequest,
                                                    HttpServletResponse httpResponse) {
         Long userId = AuthUtil.getUserId(authentication);
-        userService.logout(userId, refreshToken != null ? refreshToken : "");
+        String accessToken = resolveToken(httpRequest);
+        userService.logout(userId, refreshToken != null ? refreshToken : "", accessToken);
         httpResponse.addHeader(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie("", 0).toString());
         return ResponseEntity.ok(new MessageResponse("로그아웃 되었습니다."));
+    }
+
+    private String resolveToken(HttpServletRequest request) {
+        String bearer = request.getHeader("Authorization");
+        if (bearer != null && bearer.startsWith("Bearer ")) {
+            return bearer.substring(7);
+        }
+        return null;
     }
 
     private ResponseCookie buildRefreshTokenCookie(String value, long maxAgeMillis) {

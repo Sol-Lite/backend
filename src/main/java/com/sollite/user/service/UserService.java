@@ -159,7 +159,7 @@ public class UserService {
      * @param request 갱신 토큰
      * @throws BusinessException 유효하지 않은 토큰 시
      */
-    public void logout(Long userId, String refreshToken) {
+    public void logout(Long userId, String refreshToken, String accessToken) {
         Long result = redisTemplate.execute(
                 LOGOUT_SCRIPT,
                 List.of("refresh:" + userId),
@@ -168,6 +168,16 @@ public class UserService {
         // 0 = 이미 세션 없음 → 멱등 처리 (중복 로그아웃 요청은 성공으로 간주)
         if (result != null && result == -1L) {
             throw new BusinessException(UserErrorCode.INVALID_TOKEN);
+        }
+
+        // Access Token 블랙리스트 등록 (남은 유효시간만큼 Redis에 보관)
+        if (accessToken != null && !accessToken.isBlank()) {
+            long remainingMs = jwtTokenProvider.getRemainingMs(accessToken);
+            if (remainingMs > 0) {
+                redisTemplate.opsForValue().set(
+                        "blacklist:" + accessToken, "1",
+                        java.time.Duration.ofMillis(remainingMs));
+            }
         }
     }
 
