@@ -68,6 +68,13 @@ public class BalanceService {
                 .availableAmount(initialAmount)
                 .totalAmount(initialAmount)
                 .build());
+        cashBalanceRepository.save(CashBalance.builder()
+                .account(account)
+                .simulationRound(round)
+                .currencyCode("USD")
+                .availableAmount(BigDecimal.ZERO)
+                .totalAmount(BigDecimal.ZERO)
+                .build());
     }
 
     /**
@@ -208,9 +215,10 @@ public class BalanceService {
                         toForeignExchcd(h.getInstrument().getExchangeCode())))
                 .toList();
         Map<String, BigDecimal> prices = priceLookupService.resolveForeignPrices(symbolExchcdPairs);
+        BigDecimal usdKrwRate = resolveUsdKrwRate();
 
         return holdings.stream()
-                .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getStockCode())))
+                .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getStockCode()), usdKrwRate))
                 .toList();
     }
 
@@ -226,79 +234,145 @@ public class BalanceService {
     }
 
     /**
-     * 총 평가자산 요약
-     * - 현금: 모든 통화의 totalAmount 합산 (KRW 기준)
-     * - 주식 평가: holdingQuantity × avgBuyPrice 합산 (매입금액 기준, 실시간 평가는 프론트에서)
+     * 총 평가자산 요약 — 현재가 기반 실시간 평가 (모든 금액 KRW 기준)
      */
     public BalanceSummaryResponse getBalanceSummary(Long userId) {
         var pair = resolveAccountAndRound(userId);
         Long accountId = pair.account.getAccountId();
         Long roundId = pair.round.getSimulationRoundId();
 
+        BigDecimal usdKrwRate = resolveUsdKrwRate();
+
         List<CashBalance> cashBalances = cashBalanceRepository
                 .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId);
-
-        BigDecimal totalCash = cashBalances.stream()
-                .map(CashBalance::getTotalAmount)
+        BigDecimal totalCashKrw = cashBalances.stream()
+                .map(cb -> toKrw(cb.getCurrencyCode(), cb.getTotalAmount(), usdKrwRate))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         List<Holding> holdings = holdingRepository.findAllActiveHoldings(accountId, roundId);
-        BigDecimal totalStockEval = holdings.stream()
-                .map(h -> h.getAvgBuyPrice().multiply(BigDecimal.valueOf(h.getHoldingQuantity())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        Map<String, BigDecimal> priceMap = resolveHoldingPrices(holdings);
+
+        BigDecimal totalStockBuyAmount = BigDecimal.ZERO;
+        BigDecimal totalStockEvaluation = BigDecimal.ZERO;
+        for (Holding h : holdings) {
+            String currency = h.getInstrument().getCurrencyCode();
+            long qty = h.getHoldingQuantity();
+            BigDecimal buyKrw = toKrw(currency,
+                    h.getAvgBuyPrice().multiply(BigDecimal.valueOf(qty)).multiply(h.getAvgBuyExchangeRate()),
+                    usdKrwRate);
+            BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
+            BigDecimal evalKrw = price != null
+                    ? toKrw(currency, price.multiply(BigDecimal.valueOf(qty)), usdKrwRate)
+                    : buyKrw;
+            totalStockBuyAmount = totalStockBuyAmount.add(buyKrw);
+            totalStockEvaluation = totalStockEvaluation.add(evalKrw);
+        }
+
+        BigDecimal totalStockUnrealizedProfitLoss = totalStockEvaluation.subtract(totalStockBuyAmount);
+        BigDecimal totalStockUnrealizedProfitLossRate = totalStockBuyAmount.compareTo(BigDecimal.ZERO) > 0
+                ? totalStockUnrealizedProfitLoss.divide(totalStockBuyAmount, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        BigDecimal totalAssets = totalCashKrw.add(totalStockEvaluation);
+        BigDecimal initialSeedAmount = pair.round.getInitialSeedAmount();
+        BigDecimal accountProfitLoss = totalAssets.subtract(initialSeedAmount);
+        BigDecimal accountProfitLossRate = initialSeedAmount.compareTo(BigDecimal.ZERO) > 0
+                ? accountProfitLoss.divide(initialSeedAmount, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
 
         return new BalanceSummaryResponse(
-                totalCash,
-                totalStockEval,
-                totalCash.add(totalStockEval),
+                totalCashKrw,
+                totalStockBuyAmount,
+                totalStockEvaluation,
+                totalStockUnrealizedProfitLoss,
+                totalStockUnrealizedProfitLossRate,
+                totalAssets,
+                accountProfitLoss,
+                accountProfitLossRate,
                 cashBalances.stream().map(CashBalanceResponse::from).toList(),
                 holdings.size()
         );
     }
 
     /**
-     * 포트폴리오 파이차트 구성 비중
-     * - 현금 비중 + 종목별 비중 (매입금액 기준)
+     * 포트폴리오 파이차트 구성 비중 — 현재가 기반 실시간 평가 (모든 금액 KRW 기준)
+     * 현금은 KRW/USD 각각 아이템으로 분리 (둘 다 KRW 환산 evalAmount)
      */
     public PortfolioResponse getPortfolio(Long userId) {
         var pair = resolveAccountAndRound(userId);
         Long accountId = pair.account.getAccountId();
         Long roundId = pair.round.getSimulationRoundId();
 
+        BigDecimal usdKrwRate = resolveUsdKrwRate();
+
         List<CashBalance> cashBalances = cashBalanceRepository
                 .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId);
-        BigDecimal totalCash = cashBalances.stream()
-                .map(CashBalance::getTotalAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         List<Holding> holdings = holdingRepository.findAllActiveHoldings(accountId, roundId);
-        BigDecimal totalStockEval = holdings.stream()
-                .map(h -> h.getAvgBuyPrice().multiply(BigDecimal.valueOf(h.getHoldingQuantity())))
+        Map<String, BigDecimal> priceMap = resolveHoldingPrices(holdings);
+
+        // 총자산 = 모든 현금(KRW 환산) + 모든 주식 평가금액(KRW)
+        BigDecimal totalCashKrw = cashBalances.stream()
+                .map(cb -> toKrw(cb.getCurrencyCode(), cb.getTotalAmount(), usdKrwRate))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        BigDecimal totalAssets = totalCash.add(totalStockEval);
+        BigDecimal totalStockEvaluation = BigDecimal.ZERO;
+        for (Holding h : holdings) {
+            String currency = h.getInstrument().getCurrencyCode();
+            long qty = h.getHoldingQuantity();
+            BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
+            BigDecimal evalKrw = price != null
+                    ? toKrw(currency, price.multiply(BigDecimal.valueOf(qty)), usdKrwRate)
+                    : toKrw(currency, h.getAvgBuyPrice().multiply(BigDecimal.valueOf(qty)).multiply(h.getAvgBuyExchangeRate()), usdKrwRate);
+            totalStockEvaluation = totalStockEvaluation.add(evalKrw);
+        }
+
+        BigDecimal totalAssets = totalCashKrw.add(totalStockEvaluation);
 
         List<PortfolioItem> items = new ArrayList<>();
 
-        // 현금 항목
-        if (totalCash.compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal cashWeight = totalAssets.compareTo(BigDecimal.ZERO) > 0
-                    ? totalCash.divide(totalAssets, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
+        // 현금 아이템: 통화별로 분리
+        for (CashBalance cb : cashBalances) {
+            BigDecimal evalKrw = toKrw(cb.getCurrencyCode(), cb.getTotalAmount(), usdKrwRate);
+            if (evalKrw.compareTo(BigDecimal.ZERO) <= 0) continue;
+            BigDecimal weight = totalAssets.compareTo(BigDecimal.ZERO) > 0
+                    ? evalKrw.divide(totalAssets, 4, RoundingMode.HALF_UP)
+                            .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
-            items.add(new PortfolioItem("현금", "CASH", totalCash, cashWeight));
+            String label = "KRW".equals(cb.getCurrencyCode()) ? "현금(KRW)" : "현금(USD)";
+            items.add(new PortfolioItem(label, "CASH", evalKrw, weight, null, null));
         }
 
-        // 종목별 항목
+        // 주식 아이템
         for (Holding h : holdings) {
-            BigDecimal evalAmount = h.getAvgBuyPrice().multiply(BigDecimal.valueOf(h.getHoldingQuantity()));
+            String currency = h.getInstrument().getCurrencyCode();
+            long qty = h.getHoldingQuantity();
+            BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
+            BigDecimal buyKrw = toKrw(currency,
+                    h.getAvgBuyPrice().multiply(BigDecimal.valueOf(qty)).multiply(h.getAvgBuyExchangeRate()),
+                    usdKrwRate);
+            BigDecimal evalKrw = price != null
+                    ? toKrw(currency, price.multiply(BigDecimal.valueOf(qty)), usdKrwRate)
+                    : buyKrw;
             BigDecimal weight = totalAssets.compareTo(BigDecimal.ZERO) > 0
-                    ? evalAmount.divide(totalAssets, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
+                    ? evalKrw.divide(totalAssets, 4, RoundingMode.HALF_UP)
+                            .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
+            BigDecimal profitLoss = price != null ? evalKrw.subtract(buyKrw) : null;
+            BigDecimal profitLossRate = null;
+            if (profitLoss != null && buyKrw.compareTo(BigDecimal.ZERO) > 0) {
+                profitLossRate = profitLoss.divide(buyKrw, 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP);
+            }
             items.add(new PortfolioItem(
                     h.getInstrument().getStockName(),
                     "STOCK",
-                    evalAmount,
-                    weight
+                    evalKrw,
+                    weight,
+                    profitLoss,
+                    profitLossRate
             ));
         }
 
@@ -306,6 +380,25 @@ public class BalanceService {
     }
 
     // -----------------------------------------------------------------------
+
+    /** 금액을 KRW로 환산. USD인 경우 usdKrwRate 적용. */
+    private BigDecimal toKrw(String currencyCode, BigDecimal amount, BigDecimal usdKrwRate) {
+        if (amount == null) return BigDecimal.ZERO;
+        return switch (currencyCode) {
+            case "KRW" -> amount;
+            case "USD" -> amount.multiply(usdKrwRate).setScale(0, RoundingMode.HALF_UP);
+            default -> throw new IllegalArgumentException("unsupported currency: " + currencyCode);
+        };
+    }
+
+    /** USD/KRW 환율 조회. 없으면 503 예외. */
+    private BigDecimal resolveUsdKrwRate() {
+        BigDecimal rate = priceLookupService.resolveUsdKrwRate();
+        if (rate == null || rate.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(BalanceErrorCode.EXCHANGE_RATE_UNAVAILABLE);
+        }
+        return rate;
+    }
 
     private record AccountRound(Account account, SimulationRound round) {}
 
@@ -316,6 +409,29 @@ public class BalanceService {
                 .findByAccount_AccountIdAndRoundStatus(account.getAccountId(), RoundStatus.ACTIVE)
                 .orElseThrow(() -> new BusinessException(AccountErrorCode.ACTIVE_ROUND_NOT_FOUND));
         return new AccountRound(account, round);
+    }
+
+    /**
+     * 보유 종목 목록의 현재가를 국내/해외 구분해서 한 번에 조회
+     * key = stockCode, value = currentPrice (조회 실패 시 key 없음)
+     */
+    private Map<String, BigDecimal> resolveHoldingPrices(List<Holding> holdings) {
+        List<String> domesticCodes = holdings.stream()
+                .filter(h -> DOMESTIC_MARKET_TYPES.contains(h.getInstrument().getMarketType()))
+                .map(h -> h.getInstrument().getStockCode())
+                .toList();
+
+        List<Map.Entry<String, String>> foreignPairs = holdings.stream()
+                .filter(h -> OVERSEAS_MARKET_TYPES.contains(h.getInstrument().getMarketType()))
+                .map(h -> Map.entry(
+                        h.getInstrument().getStockCode(),
+                        toForeignExchcd(h.getInstrument().getExchangeCode())))
+                .toList();
+
+        Map<String, BigDecimal> prices = new java.util.HashMap<>();
+        prices.putAll(priceLookupService.resolveDomesticPrices(domesticCodes));
+        prices.putAll(priceLookupService.resolveForeignPrices(foreignPairs));
+        return prices;
     }
 
     private BigDecimal fetchCurrentPrice(Instrument instrument) {

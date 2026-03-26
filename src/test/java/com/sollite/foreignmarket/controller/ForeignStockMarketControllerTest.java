@@ -53,6 +53,7 @@ class ForeignStockMarketControllerTest {
         given(requestBodySpec.bodyValue(any())).willReturn(requestHeadersSpec);
         given(requestHeadersSpec.retrieve()).willReturn(responseSpec);
         given(responseSpec.bodyToMono(String.class)).willReturn(Mono.just(responseBody));
+        given(requestHeadersSpec.exchangeToMono(any())).willAnswer(invocation -> responseSpec.bodyToMono(String.class));
     }
 
     @Nested

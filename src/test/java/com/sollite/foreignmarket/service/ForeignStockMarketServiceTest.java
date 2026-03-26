@@ -13,6 +13,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
@@ -59,6 +61,8 @@ class ForeignStockMarketServiceTest {
         given(requestBodySpec.header(anyString(), anyString())).willReturn(requestBodySpec);
         given(requestBodySpec.bodyValue(any())).willReturn(requestHeadersSpec);
         given(requestHeadersSpec.retrieve()).willReturn(responseSpec);
+        given(responseSpec.toEntity(eq(String.class))).willReturn(Mono.just(ResponseEntity.ok("{}")));
+        given(requestHeadersSpec.exchangeToMono(any())).willAnswer(invocation -> responseSpec.bodyToMono(String.class));
     }
 
     @Nested
@@ -295,11 +299,10 @@ class ForeignStockMarketServiceTest {
         }
 
         @Test
-        @DisplayName("N분 차트 조회 요청 시 압축조회와 빈 연속필드를 사용한다")
-        void getMinuteChart_usesCompressedRequestWithBlankContinuationFields() throws Exception {
+        @DisplayName("N분 차트 조회 요청 시 비압축조회와 빈 연속필드를 사용한다")
+        void getMinuteChart_usesNonCompressedRequestWithBlankContinuationFields() throws Exception {
             setupWebClientChain();
             given(tokenService.getAccessToken()).willReturn("valid-token");
-            given(responseSpec.bodyToMono(String.class)).willReturn(Mono.just("{}"));
             given(objectMapper.readValue("{}", LsG3203Res.class)).willReturn(createSuccessResponse());
 
             foreignStockMarketService.getMinuteChart("NVDA", "82", 5);
@@ -309,10 +312,66 @@ class ForeignStockMarketServiceTest {
 
             LsG3203Req request = (LsG3203Req) bodyCaptor.getValue();
             assertThat(request.g3203InBlock().keysymbol()).isEqualTo("82NVDA");
-            assertThat(request.g3203InBlock().compYn()).isEqualTo("Y");
-            assertThat(request.g3203InBlock().qrycnt()).isEqualTo(500);
+            assertThat(request.g3203InBlock().compYn()).isEqualTo("N");
+            assertThat(request.g3203InBlock().qrycnt()).isEqualTo(5);
             assertThat(request.g3203InBlock().ctsDate()).isEmpty();
             assertThat(request.g3203InBlock().ctsTime()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("N분 차트 연속조회 시 응답 헤더의 tr_cont_key를 다음 요청 헤더로 전달한다")
+        void getMinuteChart_usesResponseContinuationHeaderForNextRequest() throws Exception {
+            setupWebClientChain();
+            given(tokenService.getAccessToken()).willReturn("valid-token");
+
+            HttpHeaders firstHeaders = new HttpHeaders();
+            firstHeaders.add("tr_cont", "Y");
+            firstHeaders.add("tr_cont_key", "NEXT-1");
+            ResponseEntity<String> firstResponse = ResponseEntity.ok()
+                    .headers(firstHeaders)
+                    .body("first");
+            ResponseEntity<String> secondResponse = ResponseEntity.ok("second");
+
+            given(responseSpec.toEntity(eq(String.class)))
+                    .willReturn(Mono.just(firstResponse))
+                    .willReturn(Mono.just(secondResponse));
+
+            LsG3203Res firstParsed = new LsG3203Res(
+                    "00000", "성공", "g3203", "Y", "",
+                    new LsG3203Res.G3203OutBlock(
+                            "0", "82NVDA", "82", "NVDA", "20260325", "093500", "5",
+                            "250.50", "252.00", "247.50", "250.50", "45000000",
+                            "248.00", "252.00", "247.50", "250.50", "093000", "160000", "0.50"
+                    ),
+                    List.of(
+                            new LsG3203Res.G3203OutBlock1(
+                                    "20260325", "093000", "250.25", "252.00",
+                                    "250.50", "250.75", "5000000", "1250000000"
+                            )
+                    )
+            );
+            LsG3203Res secondParsed = new LsG3203Res(
+                    "00000", "성공", "g3203", "N", "",
+                    new LsG3203Res.G3203OutBlock(
+                            "0", "82NVDA", "82", "NVDA", "", "", "5",
+                            "250.50", "252.00", "247.50", "250.50", "45000000",
+                            "248.00", "252.00", "247.50", "250.50", "093000", "160000", "0.50"
+                    ),
+                    List.of(
+                            new LsG3203Res.G3203OutBlock1(
+                                    "20260325", "093500", "250.25", "252.00",
+                                    "250.50", "250.75", "5000000", "1250000000"
+                            )
+                    )
+            );
+
+            given(objectMapper.readValue("first", LsG3203Res.class)).willReturn(firstParsed);
+            given(objectMapper.readValue("second", LsG3203Res.class)).willReturn(secondParsed);
+
+            foreignStockMarketService.getMinuteChart("NVDA", "82", 5);
+
+            verify(requestBodySpec).header("tr_cont", "Y");
+            verify(requestBodySpec).header("tr_cont_key", "NEXT-1");
         }
     }
 
@@ -374,6 +433,7 @@ class ForeignStockMarketServiceTest {
             verify(requestBodySpec).bodyValue(bodyCaptor.capture());
 
             LsG3204Req request = (LsG3204Req) bodyCaptor.getValue();
+            assertThat(request.g3204InBlock().gubun()).isEqualTo("2");
             assertThat(request.g3204InBlock().ctsDate()).isEmpty();
             assertThat(request.g3204InBlock().ctsInfo()).isEmpty();
         }

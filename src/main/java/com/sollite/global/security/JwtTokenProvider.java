@@ -136,6 +136,19 @@ public class JwtTokenProvider {
      * @return 검증된 토큰의 Claims (userId, email 등 포함)
      * @throws JwtException 토큰이 만료되었거나 서명이 유효하지 않은 경우
      */
+    /**
+     * 토큰의 남은 유효시간(ms)을 반환한다. 이미 만료됐으면 0 반환.
+     */
+    public long getRemainingMs(String token) {
+        try {
+            Date expiration = parseClaims(token).getExpiration();
+            long remaining = expiration.getTime() - System.currentTimeMillis();
+            return Math.max(remaining, 0);
+        } catch (JwtException | IllegalArgumentException e) {
+            return 0;
+        }
+    }
+
     private Claims parseClaims(String token) {
         return Jwts.parser()
                 .verifyWith(key)                      // 저장된 key로 서명 검증

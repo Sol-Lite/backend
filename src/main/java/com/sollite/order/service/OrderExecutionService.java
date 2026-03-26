@@ -13,6 +13,7 @@ import com.sollite.balance.domain.repository.CashBalanceRepository;
 import com.sollite.balance.domain.repository.CashLedgerRepository;
 import com.sollite.balance.domain.repository.HoldingRepository;
 import com.sollite.balance.domain.repository.PositionLedgerRepository;
+import com.sollite.balance.service.PriceLookupService;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.market.domain.entity.Instrument;
 import com.sollite.order.domain.entity.Execution;
@@ -54,6 +55,7 @@ public class OrderExecutionService {
     private final CashLedgerRepository cashLedgerRepository;
     private final HoldingRepository holdingRepository;
     private final PositionLedgerRepository positionLedgerRepository;
+    private final PriceLookupService priceLookupService;
 
     /**
      * 주문 체결 (매수/매도 공통 진입점).
@@ -166,7 +168,10 @@ public class OrderExecutionService {
                         .avgBuyExchangeRate(BigDecimal.ONE)
                         .build());
 
-        holding.addBuyFill(order.getOrderQuantity(), fillPrice);
+        BigDecimal exchangeRate = "USD".equals(currencyCode)
+                ? resolveExchangeRate()
+                : BigDecimal.ONE;
+        holding.addBuyFill(order.getOrderQuantity(), fillPrice, exchangeRate);
         holdingRepository.save(holding);
 
         // 6. PositionLedger INSERT (불변 이력)
@@ -281,5 +286,13 @@ public class OrderExecutionService {
         String timestamp = LocalDateTime.now().format(EXEC_NO_FMT);
         int random = ThreadLocalRandom.current().nextInt(1000, 9999);
         return "EXE" + timestamp + random;
+    }
+
+    private BigDecimal resolveExchangeRate() {
+        BigDecimal rate = priceLookupService.resolveUsdKrwRate();
+        if (rate == null || rate.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(OrderErrorCode.EXCHANGE_RATE_UNAVAILABLE);
+        }
+        return rate;
     }
 }

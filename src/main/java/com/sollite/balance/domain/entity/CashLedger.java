@@ -51,6 +51,9 @@ public class CashLedger {
     @Column(name = "reference_id", nullable = false, length = 100)
     private String referenceId;
 
+    @Column(name = "note", length = 200)
+    private String note;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -58,7 +61,7 @@ public class CashLedger {
     @Builder
     public CashLedger(Account account, SimulationRound simulationRound, String currencyCode,
                       CashEntryType entryType, BigDecimal amountDelta, BigDecimal balanceAfter,
-                      String referenceType, String referenceId) {
+                      String referenceType, String referenceId, String note) {
         this.account = account;
         this.simulationRound = simulationRound;
         this.currencyCode = currencyCode;
@@ -67,5 +70,6 @@ public class CashLedger {
         this.balanceAfter = balanceAfter;
         this.referenceType = referenceType;
         this.referenceId = referenceId;
+        this.note = note;
     }
 }

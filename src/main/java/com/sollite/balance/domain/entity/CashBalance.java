@@ -80,4 +80,16 @@ public class CashBalance {
         this.availableAmount = BigDecimal.ZERO;
         this.totalAmount = BigDecimal.ZERO;
     }
+
+    /** 환전 출금: available + total 모두 차감 */
+    public void deductForFx(BigDecimal amount) {
+        this.availableAmount = this.availableAmount.subtract(amount);
+        this.totalAmount = this.totalAmount.subtract(amount);
+    }
+
+    /** 환전 입금: available + total 모두 증가 */
+    public void addFromFx(BigDecimal amount) {
+        this.availableAmount = this.availableAmount.add(amount);
+        this.totalAmount = this.totalAmount.add(amount);
+    }
 }

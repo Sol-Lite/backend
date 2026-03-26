@@ -8,9 +8,11 @@ import com.sollite.websocket.service.LsBrokerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,6 +25,10 @@ class LsIndexServiceImpl implements IndexService {
     private final ObjectMapper objectMapper;
     private final WebClient lsWebClient;
     private final LsTokenService tokenService;
+    private final StringRedisTemplate redisTemplate;
+
+    private static final String REST_SNAPSHOT_PREFIX = "index:rest:";
+    private static final Duration REST_SNAPSHOT_TTL = Duration.ofHours(24);
 
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
     private static final long T3521_MIN_INTERVAL_MS = 1100;
@@ -47,7 +53,7 @@ class LsIndexServiceImpl implements IndexService {
         for (IndexMeta meta : INDICES) {
             IndexResponse res = switch (meta.type()) {
                 case "domestic" -> firstNonNull(fromLastValue(meta), fromT1511(meta));
-                case "foreign" -> firstNonNull(fromLastValue(meta), fromT3521(meta));
+                case "foreign" -> firstNonNull(fromLastValue(meta), fromT3521WithSnapshot(meta));
                 case "currency" -> fromLastValue(meta);
                 default -> null;
             };
@@ -156,6 +162,40 @@ class LsIndexServiceImpl implements IndexService {
             return null;
         } catch (Exception e) {
             log.warn("t3521 폴백 실패: symbol={}, {}", meta.t3521Symbol(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * t3521 REST 호출 후 성공하면 Redis에 스냅샷 저장.
+     * 실패하면 Redis 스냅샷에서 꺼내옴.
+     */
+    private IndexResponse fromT3521WithSnapshot(IndexMeta meta) {
+        IndexResponse res = fromT3521(meta);
+        if (res != null) {
+            saveRestSnapshot(meta.code(), res);
+            return res;
+        }
+        return loadRestSnapshot(meta);
+    }
+
+    private void saveRestSnapshot(String code, IndexResponse res) {
+        try {
+            String json = objectMapper.writeValueAsString(res);
+            redisTemplate.opsForValue().set(REST_SNAPSHOT_PREFIX + code, json, REST_SNAPSHOT_TTL);
+        } catch (Exception e) {
+            log.debug("REST 스냅샷 저장 실패: code={}", code, e);
+        }
+    }
+
+    private IndexResponse loadRestSnapshot(IndexMeta meta) {
+        try {
+            String json = redisTemplate.opsForValue().get(REST_SNAPSHOT_PREFIX + meta.code());
+            if (json == null) return null;
+            log.debug("REST 스냅샷 폴백 사용: code={}", meta.code());
+            return objectMapper.readValue(json, IndexResponse.class);
+        } catch (Exception e) {
+            log.debug("REST 스냅샷 로드 실패: code={}", meta.code(), e);
             return null;
         }
     }
