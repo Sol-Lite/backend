@@ -17,6 +17,7 @@ import com.sollite.exchange.domain.entity.FxOrder;
 import com.sollite.exchange.domain.enums.FxOrderStatus;
 import com.sollite.exchange.domain.repository.FxOrderRepository;
 import com.sollite.exchange.dto.ExchangeAvailableResponse;
+import com.sollite.exchange.dto.ExchangeRateResponse;
 import com.sollite.exchange.dto.ExchangeRequest;
 import com.sollite.exchange.dto.ExchangeResponse;
 import com.sollite.exchange.exception.ExchangeErrorCode;
@@ -70,6 +71,14 @@ public class ExchangeService {
         }
 
         return new ExchangeAvailableResponse(fromCurrency, toCurrency, available, rate, estimated);
+    }
+
+    /**
+     * 현재 USD/KRW 환율 조회 (1 USD = X KRW)
+     */
+    @Transactional(readOnly = true)
+    public ExchangeRateResponse getUsdKrwRate() {
+        return new ExchangeRateResponse("USD", "KRW", requireExchangeRate());
     }
 
     /**
