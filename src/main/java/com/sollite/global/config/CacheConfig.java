@@ -56,6 +56,8 @@ public class CacheConfig {
                 Map.entry("market:info",         base.entryTtl(Duration.ofHours(24))),
                 // 국내주식 순위
                 Map.entry("market:ranking",          base.entryTtl(Duration.ofSeconds(30))),
+                // 알림 설정 (틱마다 호출되므로 TTL 짧게)
+                Map.entry("notificationSettings",   base.entryTtl(Duration.ofMinutes(1))),
                 // 해외주식
                 Map.entry("foreign:price",          base.entryTtl(Duration.ofSeconds(5))),
                 Map.entry("foreign:orderbook",      base.entryTtl(Duration.ofSeconds(5))),

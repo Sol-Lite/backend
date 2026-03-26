@@ -26,9 +26,11 @@ import com.sollite.order.domain.enums.OrderStatus;
 import com.sollite.order.domain.repository.ExecutionRepository;
 import com.sollite.order.domain.repository.OrderEventRepository;
 import com.sollite.order.domain.repository.OrderRepository;
+import com.sollite.notifications.event.ExecutionNotificationEvent;
 import com.sollite.order.exception.OrderErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -56,6 +58,7 @@ public class OrderExecutionService {
     private final HoldingRepository holdingRepository;
     private final PositionLedgerRepository positionLedgerRepository;
     private final PriceLookupService priceLookupService;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 주문 체결 (매수/매도 공통 진입점).
@@ -196,6 +199,17 @@ public class OrderExecutionService {
                 .referenceType("EXECUTION")
                 .referenceId(String.valueOf(execution.getExecutionId()))
                 .build());
+
+        // 8. 체결 알림 이벤트 발행 (AFTER_COMMIT 리스너가 트랜잭션 커밋 후 처리)
+        eventPublisher.publishEvent(new ExecutionNotificationEvent(
+                account.getUser().getUserId(),
+                instrument.getStockCode(),
+                instrument.getStockName(),
+                OrderSide.BUY.name(),
+                order.getOrderQuantity(),
+                fillPrice,
+                currencyCode
+        ));
     }
 
     // -----------------------------------------------------------------------
@@ -276,6 +290,17 @@ public class OrderExecutionService {
                 .referenceType("EXECUTION")
                 .referenceId(String.valueOf(execution.getExecutionId()))
                 .build());
+
+        // 8. 체결 알림 이벤트 발행 (AFTER_COMMIT 리스너가 트랜잭션 커밋 후 처리)
+        eventPublisher.publishEvent(new ExecutionNotificationEvent(
+                account.getUser().getUserId(),
+                instrument.getStockCode(),
+                instrument.getStockName(),
+                OrderSide.SELL.name(),
+                order.getOrderQuantity(),
+                fillPrice,
+                currencyCode
+        ));
     }
 
     // -----------------------------------------------------------------------
