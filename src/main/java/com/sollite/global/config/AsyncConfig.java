@@ -1,15 +1,19 @@
 package com.sollite.global.config;
 
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
 
+@Slf4j
 @Configuration
 @EnableAsync
-public class AsyncConfig {
+public class AsyncConfig implements AsyncConfigurer {
 
     @Bean(name = "orderMatchingExecutor")
     public Executor orderMatchingExecutor() {
@@ -20,5 +24,27 @@ public class AsyncConfig {
         executor.setThreadNamePrefix("order-match-");
         executor.initialize();
         return executor;
+    }
+
+    @Bean(name = "notificationExecutor")
+    public Executor notificationExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(200);
+        executor.setThreadNamePrefix("notification-");
+        // 큐 포화 시 AbortPolicy 대신 경고 로그 후 폐기 (알림 실패가 시세/체결 처리에 영향을 주지 않도록)
+        executor.setRejectedExecutionHandler((r, e) ->
+                log.warn("[NOTIFICATION] 스레드풀 큐 포화로 알림 이벤트 폐기됨 - activeThreads={}, queueSize={}",
+                        e.getActiveCount(), e.getQueue().size()));
+        executor.initialize();
+        return executor;
+    }
+
+    @Override
+    public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
+        return (ex, method, params) ->
+                log.error("[ASYNC] 처리되지 않은 예외 - method={}, error={}",
+                        method.getName(), ex.getMessage(), ex);
     }
 }

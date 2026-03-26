@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.global.service.LsTokenService;
 import com.sollite.market.domain.repository.InstrumentRepository;
+import com.sollite.notifications.event.PriceChangeEvent;
 import com.sollite.order.event.MarketTickEvent;
 import com.sollite.order.service.ActiveOrderRegistry;
 import jakarta.annotation.PostConstruct;
@@ -363,10 +364,33 @@ public class LsBrokerService {
                 }
             }
 
+            if ("US3".equals(trCd) || "GSC".equals(trCd)) {
+                java.math.BigDecimal tickPrice = extractTradePrice(trCd, body);
+                if (tickPrice != null) {
+                    applicationEventPublisher.publishEvent(
+                            new PriceChangeEvent(symbol, tickPrice, extractChangeRate(body),
+                                    trCd, java.time.Instant.now()));
+                }
+            }
+
         } catch (Exception e) {
             log.error("[LS-MSG] 처리 예외: {}, payload={}", e.getMessage(),
                     payload.length() > 200 ? payload.substring(0, 200) : payload, e);
         }
+    }
+
+    private java.math.BigDecimal extractChangeRate(JsonNode body) {
+        try {
+            if (body.has("diff")) {
+                String raw = body.get("diff").asText().replace(",", "").trim();
+                if (!raw.isEmpty()) {
+                    return new java.math.BigDecimal(raw);
+                }
+            }
+        } catch (NumberFormatException e) {
+            log.warn("[LS-MSG] 등락률 파싱 실패: body={}", body);
+        }
+        return null;
     }
 
     /**
