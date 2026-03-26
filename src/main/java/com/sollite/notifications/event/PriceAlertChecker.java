@@ -56,8 +56,12 @@ public class PriceAlertChecker {
             if (alerts.isEmpty()) return;
 
             for (PriceAlert alert : alerts) {
-                String stockName = stockNameMap.getOrDefault(alert.getInstrumentId(),
-                        instruments.get(0).getStockName());
+                String stockName = stockNameMap.get(alert.getInstrumentId());
+                if (stockName == null) {
+                    log.warn("[PRICE_ALERT] instrumentId 불일치 - alertId={}, instrumentId={}",
+                            alert.getPriceAlertId(), alert.getInstrumentId());
+                    continue;
+                }
                 processAlert(alert, event, stockName);
             }
 
@@ -82,8 +86,6 @@ public class PriceAlertChecker {
             String changeRateStr = changeRate != null
                     ? String.format("%.2f%%", changeRate.abs()) : "";
 
-            alert.recordTrigger();
-
             eventPublisher.publishEvent(new PriceAlertTriggeredEvent(
                     alert.getUserId(),
                     NotificationType.PRICE_ALERT,
@@ -93,6 +95,8 @@ public class PriceAlertChecker {
                     event.symbol(),
                     alert.getPriceAlertId()
             ));
+
+            alert.recordTrigger();
 
             log.info("[PRICE_ALERT] 알림 이벤트 발행 - alertId={}, userId={}, symbol={}",
                     alert.getPriceAlertId(), alert.getUserId(), event.symbol());
