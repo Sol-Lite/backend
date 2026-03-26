@@ -58,6 +58,9 @@ public class PriceAlert {
     @Builder
     public PriceAlert(Long userId, Long instrumentId, AlertType alertType,
                       BigDecimal thresholdPercent, BigDecimal targetPrice, AlertDirection direction) {
+        if (alertType == AlertType.PRICE && direction == AlertDirection.BOTH) {
+            throw new IllegalArgumentException("PRICE 타입 알림에는 BOTH 방향을 사용할 수 없습니다.");
+        }
         this.userId = userId;
         this.instrumentId = instrumentId;
         this.alertType = alertType;

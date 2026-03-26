@@ -69,13 +69,13 @@ public class NotificationSettingService {
 
     // private 메서드라 Spring AOP 프록시 미적용 — updateSettings()의 @Transactional 컨텍스트 안에서 실행
     private NotificationSetting getOrCreateSetting(Long userId) {
-        return settingRepository.findByUserId(userId)
+        return settingRepository.findByUserIdWithLock(userId)
                 .orElseGet(() -> {
                     try {
                         return settingRepository.save(new NotificationSetting(userId));
                     } catch (DataIntegrityViolationException e) {
                         // 동시 요청으로 UNIQUE 충돌 시 재조회
-                        return settingRepository.findByUserId(userId)
+                        return settingRepository.findByUserIdWithLock(userId)
                                 .orElseThrow(() -> new IllegalStateException(
                                         "알림 설정 초기화 실패 - userId=" + userId));
                     }

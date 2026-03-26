@@ -1,15 +1,14 @@
 package com.sollite.notifications.event;
 
 import com.sollite.market.domain.repository.InstrumentRepository;
-import com.sollite.notifications.domain.entity.Notification;
 import com.sollite.notifications.domain.entity.PriceAlert;
 import com.sollite.notifications.domain.enums.AlertType;
 import com.sollite.notifications.domain.enums.NotificationType;
 import com.sollite.notifications.domain.repository.PriceAlertRepository;
-import com.sollite.notifications.service.NotificationService;
 import com.sollite.notifications.service.NotificationSettingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
@@ -33,7 +32,7 @@ public class PriceAlertChecker {
 
     private final PriceAlertRepository priceAlertRepository;
     private final InstrumentRepository instrumentRepository;
-    private final NotificationService notificationService;
+    private final ApplicationEventPublisher eventPublisher;
     private final NotificationSettingService notificationSettingService;
 
     @Async("notificationExecutor")
@@ -46,6 +45,7 @@ public class PriceAlertChecker {
 
             List<Long> instrumentIds = instruments.stream()
                     .map(i -> i.getInstrumentId())
+                    .sorted()
                     .toList();
             Map<Long, String> stockNameMap = instruments.stream()
                     .collect(Collectors.toMap(i -> i.getInstrumentId(), i -> i.getStockName()));
@@ -82,21 +82,19 @@ public class PriceAlertChecker {
             String changeRateStr = changeRate != null
                     ? String.format("%.2f%%", changeRate.abs()) : "";
 
-            Notification notification = Notification.builder()
-                    .userId(alert.getUserId())
-                    .notificationType(NotificationType.PRICE_ALERT)
-                    .title(buildTitle(alert, stockName, direction, changeRateStr))
-                    .message(buildMessage(alert, event, stockName, direction, changeRateStr))
-                    .referenceType("INSTRUMENT")
-                    .referenceId(event.symbol())
-                    .build();
-
-            // createAndSend(REQUIRES_NEW) 커밋 후 outer 롤백 시 중복 알림 방지를 위해 먼저 기록
             alert.recordTrigger();
 
-            notificationService.createAndSend(notification);
+            eventPublisher.publishEvent(new PriceAlertTriggeredEvent(
+                    alert.getUserId(),
+                    NotificationType.PRICE_ALERT,
+                    buildTitle(alert, stockName, direction, changeRateStr),
+                    buildMessage(alert, event, stockName, direction, changeRateStr),
+                    "INSTRUMENT",
+                    event.symbol(),
+                    alert.getPriceAlertId()
+            ));
 
-            log.info("[PRICE_ALERT] 알림 트리거 - alertId={}, userId={}, symbol={}",
+            log.info("[PRICE_ALERT] 알림 이벤트 발행 - alertId={}, userId={}, symbol={}",
                     alert.getPriceAlertId(), alert.getUserId(), event.symbol());
 
         } catch (Exception e) {
@@ -126,7 +124,10 @@ public class PriceAlertChecker {
         return switch (alert.getDirection()) {
             case UP   -> currentPrice.compareTo(alert.getTargetPrice()) >= 0;
             case DOWN -> currentPrice.compareTo(alert.getTargetPrice()) <= 0;
-            case BOTH -> currentPrice.compareTo(alert.getTargetPrice()) == 0;
+            case BOTH -> {
+                log.warn("[PRICE_ALERT] BOTH+PRICE 조합은 지원하지 않습니다. alertId={}", alert.getPriceAlertId());
+                yield false;
+            }
         };
     }
 
