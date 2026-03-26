@@ -34,6 +34,10 @@ public interface PriceAlertRepository extends JpaRepository<PriceAlert, Long> {
     @Query("DELETE FROM PriceAlert p WHERE p.userId = :userId AND p.instrumentId = :instrumentId")
     void deleteByUserIdAndInstrumentId(@Param("userId") Long userId, @Param("instrumentId") Long instrumentId);
 
+    /** 서버 기동 시 활성 알림의 instrumentId 목록 조회 (ActivePriceAlertRegistry 복구용) */
+    @Query("SELECT DISTINCT p.instrumentId FROM PriceAlert p WHERE p.activeYn = 'Y'")
+    List<Long> findAllActiveInstrumentIds();
+
     /** 알림 설정 임계값 변경 시 PERCENT 타입 활성 알림만 업데이트 */
     @Modifying(clearAutomatically = true)
     @Query("UPDATE PriceAlert p SET p.thresholdPercent = :threshold " +

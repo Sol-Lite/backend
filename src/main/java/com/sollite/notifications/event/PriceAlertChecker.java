@@ -5,9 +5,11 @@ import com.sollite.notifications.domain.entity.PriceAlert;
 import com.sollite.notifications.domain.enums.AlertType;
 import com.sollite.notifications.domain.enums.NotificationType;
 import com.sollite.notifications.domain.repository.PriceAlertRepository;
+import com.sollite.notifications.service.ActivePriceAlertRegistry;
 import com.sollite.notifications.service.NotificationSettingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
@@ -34,8 +36,28 @@ public class PriceAlertChecker {
     private final InstrumentRepository instrumentRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final NotificationSettingService notificationSettingService;
+    private final ActivePriceAlertRegistry activePriceAlertRegistry;
 
-    @Async("notificationExecutor")
+    /**
+     * 서버 기동 완료 후 DB의 활성 가격 알림 종목을 레지스트리에 복구한다.
+     * LsBrokerService의 PriceChangeEvent 필터링이 정상 동작하도록 보장한다.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    @Transactional(readOnly = true)
+    public void recoverRegistry() {
+        List<Long> instrumentIds = priceAlertRepository.findAllActiveInstrumentIds();
+        if (instrumentIds.isEmpty()) {
+            log.info("[PRICE_ALERT] 활성 가격 알림 없음 — 레지스트리 복구 스킵");
+            return;
+        }
+
+        instrumentRepository.findAllById(instrumentIds).forEach(instrument ->
+                activePriceAlertRegistry.register(instrument.getStockCode()));
+
+        log.info("[PRICE_ALERT] 가격 알림 레지스트리 복구 완료 — 종목 수={}", instrumentIds.size());
+    }
+
+    @Async("priceCheckExecutor")
     @EventListener
     @Transactional
     public void checkPriceChange(PriceChangeEvent event) {

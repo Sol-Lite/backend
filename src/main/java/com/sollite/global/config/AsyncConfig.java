@@ -26,6 +26,20 @@ public class AsyncConfig implements AsyncConfigurer {
         return executor;
     }
 
+    @Bean(name = "priceCheckExecutor")
+    public Executor priceCheckExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(1000);
+        executor.setThreadNamePrefix("price-check-");
+        executor.setRejectedExecutionHandler((r, e) ->
+                log.warn("[PRICE_CHECK] 스레드풀 큐 포화로 가격 체크 이벤트 폐기됨 - activeThreads={}, queueSize={}",
+                        e.getActiveCount(), e.getQueue().size()));
+        executor.initialize();
+        return executor;
+    }
+
     @Bean(name = "notificationExecutor")
     public Executor notificationExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
