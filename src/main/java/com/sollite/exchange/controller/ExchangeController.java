@@ -6,6 +6,7 @@ import com.sollite.exchange.dto.ExchangeResponse;
 import com.sollite.exchange.service.ExchangeService;
 import com.sollite.global.util.AuthUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -42,6 +43,6 @@ public class ExchangeController {
             Authentication authentication,
             @RequestBody ExchangeRequest request) {
         Long userId = AuthUtil.getUserId(authentication);
-        return ResponseEntity.ok(exchangeService.exchange(userId, request));
+        return ResponseEntity.status(HttpStatus.CREATED).body(exchangeService.exchange(userId, request));
     }
 }

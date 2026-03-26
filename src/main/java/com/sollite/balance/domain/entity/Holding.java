@@ -88,7 +88,8 @@ public class Holding {
         // 가중평균 환율 = (이전 USD총액 * 이전환율 + 신규 USD총액 * 신규환율) / 전체 USD총액
         BigDecimal totalUsd = prevUsdTotal.add(newUsdTotal);
         if (totalUsd.compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal prevKrwTotal = prevUsdTotal.multiply(this.avgBuyExchangeRate);
+            BigDecimal prevRate = this.avgBuyExchangeRate != null ? this.avgBuyExchangeRate : BigDecimal.ZERO;
+            BigDecimal prevKrwTotal = prevUsdTotal.multiply(prevRate);
             BigDecimal newKrwTotal = newUsdTotal.multiply(exchangeRate);
             this.avgBuyExchangeRate = prevKrwTotal.add(newKrwTotal)
                     .divide(totalUsd, 6, RoundingMode.HALF_UP);

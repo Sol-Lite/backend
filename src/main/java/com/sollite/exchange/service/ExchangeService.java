@@ -126,6 +126,8 @@ public class ExchangeService {
 
         String fxOrderNo = generateFxOrderNo();
 
+        String rateNote = "USD/KRW=" + rate.toPlainString();
+
         cashLedgerRepository.save(CashLedger.builder()
                 .account(pair.account())
                 .simulationRound(pair.round())
@@ -135,6 +137,7 @@ public class ExchangeService {
                 .balanceAfter(fromBalance.getTotalAmount())
                 .referenceType("FX_ORDER")
                 .referenceId(fxOrderNo)
+                .note(rateNote)
                 .build());
 
         cashLedgerRepository.save(CashLedger.builder()
@@ -146,6 +149,7 @@ public class ExchangeService {
                 .balanceAfter(toBalance.getTotalAmount())
                 .referenceType("FX_ORDER")
                 .referenceId(fxOrderNo)
+                .note(rateNote)
                 .build());
 
         FxOrder fxOrder = fxOrderRepository.save(FxOrder.builder()

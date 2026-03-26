@@ -169,7 +169,7 @@ public class OrderExecutionService {
                         .build());
 
         BigDecimal exchangeRate = "USD".equals(currencyCode)
-                ? resolveExchangeRateOrOne()
+                ? resolveExchangeRate()
                 : BigDecimal.ONE;
         holding.addBuyFill(order.getOrderQuantity(), fillPrice, exchangeRate);
         holdingRepository.save(holding);
@@ -288,11 +288,10 @@ public class OrderExecutionService {
         return "EXE" + timestamp + random;
     }
 
-    private BigDecimal resolveExchangeRateOrOne() {
+    private BigDecimal resolveExchangeRate() {
         BigDecimal rate = priceLookupService.resolveUsdKrwRate();
         if (rate == null || rate.compareTo(BigDecimal.ZERO) <= 0) {
-            log.warn("[EXEC] USD/KRW 환율 조회 실패 — avgBuyExchangeRate 1.0으로 기록");
-            return BigDecimal.ONE;
+            throw new BusinessException(OrderErrorCode.EXCHANGE_RATE_UNAVAILABLE);
         }
         return rate;
     }

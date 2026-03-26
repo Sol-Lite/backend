@@ -215,7 +215,7 @@ public class BalanceService {
                         toForeignExchcd(h.getInstrument().getExchangeCode())))
                 .toList();
         Map<String, BigDecimal> prices = priceLookupService.resolveForeignPrices(symbolExchcdPairs);
-        BigDecimal usdKrwRate = resolveUsdKrwRateOrWarn();
+        BigDecimal usdKrwRate = resolveUsdKrwRate();
 
         return holdings.stream()
                 .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getStockCode()), usdKrwRate))
@@ -241,7 +241,7 @@ public class BalanceService {
         Long accountId = pair.account.getAccountId();
         Long roundId = pair.round.getSimulationRoundId();
 
-        BigDecimal usdKrwRate = resolveUsdKrwRateOrWarn();
+        BigDecimal usdKrwRate = resolveUsdKrwRate();
 
         List<CashBalance> cashBalances = cashBalanceRepository
                 .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId);
@@ -305,7 +305,7 @@ public class BalanceService {
         Long accountId = pair.account.getAccountId();
         Long roundId = pair.round.getSimulationRoundId();
 
-        BigDecimal usdKrwRate = resolveUsdKrwRateOrWarn();
+        BigDecimal usdKrwRate = resolveUsdKrwRate();
 
         List<CashBalance> cashBalances = cashBalanceRepository
                 .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId);
@@ -391,12 +391,11 @@ public class BalanceService {
         };
     }
 
-    /** USD/KRW 환율 조회. 없으면 1.0으로 폴백하고 경고 로그. */
-    private BigDecimal resolveUsdKrwRateOrWarn() {
+    /** USD/KRW 환율 조회. 없으면 503 예외. */
+    private BigDecimal resolveUsdKrwRate() {
         BigDecimal rate = priceLookupService.resolveUsdKrwRate();
         if (rate == null || rate.compareTo(BigDecimal.ZERO) <= 0) {
-            log.warn("[Balance] USD/KRW 환율 조회 실패 — 1.0으로 폴백");
-            return BigDecimal.ONE;
+            throw new BusinessException(BalanceErrorCode.EXCHANGE_RATE_UNAVAILABLE);
         }
         return rate;
     }
