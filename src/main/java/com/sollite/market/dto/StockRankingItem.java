@@ -3,6 +3,7 @@ package com.sollite.market.dto;
 public record StockRankingItem(
         int rank,
         String stockCode,
+        String marketType,
         String name,
         long price,
         String sign,
@@ -28,4 +29,31 @@ public record StockRankingItem(
         Long prevTradingValue,
         // T1452 + T1463 공통
         Double prevDiff
-) {}
+) {
+    public StockRankingItem withMarketType(String marketType) {
+        return new StockRankingItem(
+                rank,
+                stockCode,
+                marketType,
+                name,
+                price,
+                sign,
+                change,
+                changeRate,
+                volume,
+                tradingValue,
+                marketCap,
+                buyRatio,
+                exShcode,
+                consecutiveDays,
+                offerPrice,
+                bidPrice,
+                volumeChangeRate,
+                marketShareRate,
+                tradingShareRate,
+                prevVolume,
+                prevTradingValue,
+                prevDiff
+        );
+    }
+}

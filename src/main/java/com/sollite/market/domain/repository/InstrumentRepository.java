@@ -10,6 +10,11 @@ import java.util.Optional;
 
 public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
 
+    interface StockCodeMarketTypeView {
+        String getStockCode();
+        String getMarketType();
+    }
+
     @Query("SELECT i FROM Instrument i WHERE i.activeYn = 'Y' AND " +
             "(UPPER(i.stockCode) LIKE UPPER(CONCAT(:keyword, '%')) " +
             "OR i.stockName LIKE CONCAT('%', :keyword, '%') " +
@@ -52,6 +57,32 @@ public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
     Optional<Instrument> findByStockCodeAndMarketTypeIn(
             @Param("stockCode") String stockCode,
             @Param("marketTypes") List<String> marketTypes);
+
+    @Query("""
+            SELECT i.instrumentId FROM Instrument i
+            WHERE i.activeYn = 'Y'
+              AND i.stockCode = :stockCode
+              AND i.marketType IN :marketTypes
+            ORDER BY i.instrumentId ASC
+            """)
+    List<Long> findInstrumentIdsByStockCodeAndMarketTypeIn(
+            @Param("stockCode") String stockCode,
+            @Param("marketTypes") List<String> marketTypes);
+
+    default Optional<Long> findFirstInstrumentIdByStockCodeAndMarketTypeIn(String stockCode, List<String> marketTypes) {
+        return findInstrumentIdsByStockCodeAndMarketTypeIn(stockCode, marketTypes).stream().findFirst();
+    }
+
+    @Query("""
+            SELECT i.stockCode AS stockCode, i.marketType AS marketType
+            FROM Instrument i
+            WHERE i.activeYn = 'Y'
+              AND i.stockCode IN :stockCodes
+              AND i.marketType IN ('KOSPI', 'KOSDAQ')
+            ORDER BY i.instrumentId ASC
+            """)
+    List<StockCodeMarketTypeView> findDomesticMarketTypesByStockCodes(
+            @Param("stockCodes") List<String> stockCodes);
 
     @Query("""
             SELECT i FROM Instrument i

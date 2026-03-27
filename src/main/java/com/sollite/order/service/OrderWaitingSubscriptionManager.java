@@ -102,6 +102,11 @@ public class OrderWaitingSubscriptionManager {
         }
 
         String[] parts = key.split(":", 2);
+        boolean registryTracked = subscribed.contains(orderId);
+
+        if (registryTracked) {
+            activeOrderRegistry.unregister(parts[0], parts[1]);
+        }
 
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -115,6 +120,9 @@ public class OrderWaitingSubscriptionManager {
                     if (status != STATUS_COMMITTED) {
                         // 롤백 시 다시 맵에 복원
                         orderToKey.put(orderId, key);
+                        if (registryTracked) {
+                            activeOrderRegistry.register(parts[0], parts[1]);
+                        }
                     }
                 }
             });
@@ -151,7 +159,6 @@ public class OrderWaitingSubscriptionManager {
     private void executeRelease(Long orderId, String trCd, String stockCode) {
         if (subscribed.remove(orderId)) {
             lsBrokerService.unsubscribe(trCd, stockCode);
-            activeOrderRegistry.unregister(trCd, stockCode);
             log.info("[ORDER-SUB] release — orderId={}, trCd={}, stockCode={}", orderId, trCd, stockCode);
         } else {
             log.debug("[ORDER-SUB] release 스킵 (구독 실행 전 release됨) — orderId={}", orderId);

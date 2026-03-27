@@ -80,4 +80,8 @@ public class StompAuthInterceptor implements ChannelInterceptor {
             throw new MessageDeliveryException(message, "해당 알림 채널에 구독 권한이 없습니다");
         }
     }
+
 }
+
+}
+

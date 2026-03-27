@@ -1,5 +1,6 @@
 package com.sollite.balance.controller;
 
+import com.sollite.balance.dto.AssetFlowResponse;
 import com.sollite.balance.dto.BalanceSummaryResponse;
 import com.sollite.balance.dto.BuyableResponse;
 import com.sollite.balance.dto.CashBalanceResponse;
@@ -7,9 +8,11 @@ import com.sollite.balance.dto.HoldingResponse;
 import com.sollite.balance.dto.PortfolioResponse;
 import com.sollite.balance.service.BalanceService;
 import com.sollite.global.util.AuthUtil;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,6 +22,7 @@ import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
+@Validated
 public class BalanceController {
 
     private final BalanceService balanceService;
@@ -70,6 +74,19 @@ public class BalanceController {
     public ResponseEntity<BalanceSummaryResponse> getBalanceSummary(Authentication authentication) {
         Long userId = AuthUtil.getUserId(authentication);
         return ResponseEntity.ok(balanceService.getBalanceSummary(userId));
+    }
+
+    /**
+     * 자산 흐름 시계열
+     */
+    @GetMapping("/api/balance/flow")
+    public ResponseEntity<AssetFlowResponse> getAssetFlow(
+            Authentication authentication,
+            @RequestParam(defaultValue = "1M")
+            @Pattern(regexp = "1W|1M|3M|YTD|ALL", message = "허용된 range 값: 1W, 1M, 3M, YTD, ALL")
+            String range) {
+        Long userId = AuthUtil.getUserId(authentication);
+        return ResponseEntity.ok(balanceService.getAssetFlow(userId, range));
     }
 
     /**

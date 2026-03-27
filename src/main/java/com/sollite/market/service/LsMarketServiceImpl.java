@@ -5,6 +5,7 @@ import com.sollite.global.exception.BusinessException;
 import com.sollite.global.service.LsTokenService;
 import com.sollite.market.domain.entity.MarketDailyCandle;
 import com.sollite.market.domain.entity.MarketMinuteCandle;
+import com.sollite.market.domain.repository.InstrumentRepository;
 import com.sollite.market.domain.repository.MarketDailyCandleRepository;
 import com.sollite.market.domain.repository.MarketMinuteCandleRepository;
 import com.sollite.market.dto.*;
@@ -55,6 +56,7 @@ class LsMarketServiceImpl implements MarketService {
     private final LsTokenService tokenService;
     private final ObjectMapper objectMapper;
     private final Kospi200TargetService kospi200TargetService;
+    private final InstrumentRepository instrumentRepository;
     private final MarketDailyCandleRepository marketDailyCandleRepository;
     private final MarketMinuteCandleRepository marketMinuteCandleRepository;
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
@@ -1185,16 +1187,18 @@ class LsMarketServiceImpl implements MarketService {
         }
 
         String token = tokenService.getAccessToken();
+        String normalizedMarket = normalizeRankingMarket(market);
         String gubun = resolveRankingMarketCode(market);
 
         try {
-            return switch (type) {
+            List<StockRankingItem> items = switch (type) {
                 case "trading-volume" -> getRankingByVolume(token, gubun);
                 case "rising" -> getRankingByChange(token, gubun, "0");
                 case "falling" -> getRankingByChange(token, gubun, "1");
                 case "market-cap" -> getRankingByMarketCap(token, gubun);
                 default -> getRankingByTradingValue(token, gubun);
             };
+            return attachRankingMarketTypes(items, normalizedMarket);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -1215,6 +1219,44 @@ class LsMarketServiceImpl implements MarketService {
             case "kosdaq" -> "2";
             default -> "0";
         };
+    }
+
+    private List<StockRankingItem> attachRankingMarketTypes(List<StockRankingItem> items, String normalizedMarket) {
+        if (items.isEmpty()) {
+            return items;
+        }
+
+        return switch (normalizedMarket) {
+            case "kospi" -> applyFixedRankingMarketType(items, "KOSPI");
+            case "kosdaq" -> applyFixedRankingMarketType(items, "KOSDAQ");
+            default -> applyMappedRankingMarketTypes(items);
+        };
+    }
+
+    private List<StockRankingItem> applyFixedRankingMarketType(List<StockRankingItem> items, String marketType) {
+        return items.stream()
+                .map(item -> item.withMarketType(marketType))
+                .toList();
+    }
+
+    private List<StockRankingItem> applyMappedRankingMarketTypes(List<StockRankingItem> items) {
+        List<String> stockCodes = items.stream()
+                .map(StockRankingItem::stockCode)
+                .filter(code -> code != null && !code.isBlank())
+                .distinct()
+                .toList();
+
+        if (stockCodes.isEmpty()) {
+            return items;
+        }
+
+        Map<String, String> marketTypeByStockCode = new LinkedHashMap<>();
+        instrumentRepository.findDomesticMarketTypesByStockCodes(stockCodes).forEach(view ->
+                marketTypeByStockCode.putIfAbsent(view.getStockCode(), view.getMarketType()));
+
+        return items.stream()
+                .map(item -> item.withMarketType(marketTypeByStockCode.get(item.stockCode())))
+                .toList();
     }
 
     private static String normalizeRankingMarket(String market) {
@@ -1258,7 +1300,7 @@ class LsMarketServiceImpl implements MarketService {
         return items.stream()
                 .map(i -> new StockRankingItem(
                         rank.getAndIncrement(),
-                        i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
+                        i.shcode(), null, i.hname(), i.price(), i.sign(), i.change(),
                         parseDiff(i.diff()), i.volume(), i.value() * 100L, i.total(), null,
                         i.ex_shcode(), null, null, null, null, null, null, null, i.jnilvalue() * 100L, parseDiff(i.bef_diff())))
                 .toList();
@@ -1291,7 +1333,7 @@ class LsMarketServiceImpl implements MarketService {
         return items.stream()
                 .map(i -> new StockRankingItem(
                         rank.getAndIncrement(),
-                        i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
+                        i.shcode(), null, i.hname(), i.price(), i.sign(), i.change(),
                         parseDiff(i.diff()), i.volume(), null, null, null,
                         null, null, null, null, null, null, null, i.jnilvolume(), null, parseDiff(i.bef_diff())))
                 .toList();
@@ -1328,7 +1370,7 @@ class LsMarketServiceImpl implements MarketService {
                     Integer buyRatio = total > 0 ? (int) (i.bidrem1() * 100 / total) : null;
                     return new StockRankingItem(
                             rank.getAndIncrement(),
-                            i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
+                            i.shcode(), null, i.hname(), i.price(), i.sign(), i.change(),
                             parseDiff(i.diff()), i.volume(), i.value() * 100L, i.total(), buyRatio,
                             i.ex_shcode(), i.updaycnt(), i.offerho1(), i.bidho1(), parseDiff(i.voldiff()),
                             null, null, null, null, null);
@@ -1364,7 +1406,7 @@ class LsMarketServiceImpl implements MarketService {
         return items.stream()
                 .map(i -> new StockRankingItem(
                         rank.getAndIncrement(),
-                        i.shcode(), i.hname(), i.price(), i.sign(), i.change(),
+                        i.shcode(), null, i.hname(), i.price(), i.sign(), i.change(),
                         parseDiff(i.diff()), i.volume(), null, i.total(), null,
                         null, null, null, null, null, parseDiff(i.rate()), parseDiff(i.vol_rate()), null, null, null))
                 .toList();

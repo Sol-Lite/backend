@@ -9,31 +9,37 @@ import com.sollite.account.exception.AccountErrorCode;
 import com.sollite.balance.domain.entity.CashBalance;
 import com.sollite.balance.domain.entity.CashLedger;
 import com.sollite.balance.domain.entity.Holding;
+import com.sollite.balance.domain.entity.PortfolioSnapshot;
 import com.sollite.balance.domain.enums.CashEntryType;
 import com.sollite.balance.domain.repository.CashBalanceRepository;
 import com.sollite.balance.domain.repository.CashLedgerRepository;
 import com.sollite.balance.domain.repository.HoldingRepository;
+import com.sollite.balance.domain.repository.PortfolioSnapshotRepository;
+import com.sollite.balance.dto.AssetFlowPointResponse;
+import com.sollite.balance.dto.AssetFlowResponse;
 import com.sollite.balance.dto.BalanceSummaryResponse;
 import com.sollite.balance.dto.BuyableResponse;
 import com.sollite.balance.dto.CashBalanceResponse;
 import com.sollite.balance.dto.HoldingResponse;
+import com.sollite.balance.dto.PriceQuote;
 import com.sollite.balance.dto.PortfolioItem;
 import com.sollite.balance.dto.PortfolioResponse;
 import com.sollite.balance.exception.BalanceErrorCode;
-import com.sollite.foreignmarket.dto.ForeignCurrentPriceResponse;
 import com.sollite.foreignmarket.service.ForeignStockMarketService;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.market.domain.entity.Instrument;
 import com.sollite.market.domain.repository.InstrumentRepository;
-import com.sollite.market.dto.CurrentPriceResponse;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -49,10 +55,12 @@ public class BalanceService {
     private final CashBalanceRepository cashBalanceRepository;
     private final CashLedgerRepository cashLedgerRepository;
     private final HoldingRepository holdingRepository;
+    private final PortfolioSnapshotRepository portfolioSnapshotRepository;
     private final InstrumentRepository instrumentRepository;
     private final MarketService marketService;
     private final ForeignStockMarketService foreignStockMarketService;
     private final PriceLookupService priceLookupService;
+    private final PortfolioSnapshotService portfolioSnapshotService;
 
     private static final BigDecimal SEED_MONEY = new BigDecimal("100000000");
 
@@ -191,13 +199,14 @@ public class BalanceService {
         List<Holding> holdings = holdingRepository.findActiveHoldings(
                 pair.account.getAccountId(), pair.round.getSimulationRoundId(), DOMESTIC_MARKET_TYPES);
 
-        List<String> stockCodes = holdings.stream()
-                .map(h -> h.getInstrument().getStockCode())
-                .toList();
-        Map<String, BigDecimal> prices = priceLookupService.resolveDomesticPrices(stockCodes);
+        Map<Long, PriceQuote> prices = priceLookupService.resolveDomesticPriceQuotesByInstrument(holdings.stream()
+                .map(h -> Map.entry(
+                        h.getInstrument().getInstrumentId(),
+                        h.getInstrument().getStockCode()))
+                .toList());
 
         return holdings.stream()
-                .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getStockCode())))
+                .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getInstrumentId())))
                 .toList();
     }
 
@@ -209,16 +218,19 @@ public class BalanceService {
         List<Holding> holdings = holdingRepository.findActiveHoldings(
                 pair.account.getAccountId(), pair.round.getSimulationRoundId(), OVERSEAS_MARKET_TYPES);
 
-        List<Map.Entry<String, String>> symbolExchcdPairs = holdings.stream()
+        if (holdings.isEmpty()) return List.of();
+
+        Map<Long, PriceQuote> prices = priceLookupService.resolveForeignPriceQuotesByInstrument(holdings.stream()
                 .map(h -> Map.entry(
-                        h.getInstrument().getStockCode(),
-                        toForeignExchcd(h.getInstrument().getExchangeCode())))
-                .toList();
-        Map<String, BigDecimal> prices = priceLookupService.resolveForeignPrices(symbolExchcdPairs);
+                        h.getInstrument().getInstrumentId(),
+                        Map.entry(
+                                h.getInstrument().getStockCode(),
+                                toForeignExchcd(h.getInstrument().getExchangeCode()))))
+                .toList());
         BigDecimal usdKrwRate = resolveUsdKrwRate();
 
         return holdings.stream()
-                .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getStockCode()), usdKrwRate))
+                .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getInstrumentId()), usdKrwRate))
                 .toList();
     }
 
@@ -238,43 +250,15 @@ public class BalanceService {
      */
     public BalanceSummaryResponse getBalanceSummary(Long userId) {
         var pair = resolveAccountAndRound(userId);
-        Long accountId = pair.account.getAccountId();
-        Long roundId = pair.round.getSimulationRoundId();
+        ValuationSummary valuation = calculateValuation(pair);
 
-        BigDecimal usdKrwRate = resolveUsdKrwRate();
-
-        List<CashBalance> cashBalances = cashBalanceRepository
-                .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId);
-        BigDecimal totalCashKrw = cashBalances.stream()
-                .map(cb -> toKrw(cb.getCurrencyCode(), cb.getTotalAmount(), usdKrwRate))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        List<Holding> holdings = holdingRepository.findAllActiveHoldings(accountId, roundId);
-        Map<String, BigDecimal> priceMap = resolveHoldingPrices(holdings);
-
-        BigDecimal totalStockBuyAmount = BigDecimal.ZERO;
-        BigDecimal totalStockEvaluation = BigDecimal.ZERO;
-        for (Holding h : holdings) {
-            String currency = h.getInstrument().getCurrencyCode();
-            long qty = h.getHoldingQuantity();
-            BigDecimal buyKrw = toKrw(currency,
-                    h.getAvgBuyPrice().multiply(BigDecimal.valueOf(qty)).multiply(h.getAvgBuyExchangeRate()),
-                    usdKrwRate);
-            BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
-            BigDecimal evalKrw = price != null
-                    ? toKrw(currency, price.multiply(BigDecimal.valueOf(qty)), usdKrwRate)
-                    : buyKrw;
-            totalStockBuyAmount = totalStockBuyAmount.add(buyKrw);
-            totalStockEvaluation = totalStockEvaluation.add(evalKrw);
-        }
-
-        BigDecimal totalStockUnrealizedProfitLoss = totalStockEvaluation.subtract(totalStockBuyAmount);
-        BigDecimal totalStockUnrealizedProfitLossRate = totalStockBuyAmount.compareTo(BigDecimal.ZERO) > 0
-                ? totalStockUnrealizedProfitLoss.divide(totalStockBuyAmount, 4, RoundingMode.HALF_UP)
+        BigDecimal totalStockUnrealizedProfitLoss = valuation.totalStockEvaluation().subtract(valuation.totalStockBuyAmount());
+        BigDecimal totalStockUnrealizedProfitLossRate = valuation.totalStockBuyAmount().compareTo(BigDecimal.ZERO) > 0
+                ? totalStockUnrealizedProfitLoss.divide(valuation.totalStockBuyAmount(), 4, RoundingMode.HALF_UP)
                         .multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
-        BigDecimal totalAssets = totalCashKrw.add(totalStockEvaluation);
+        BigDecimal totalAssets = valuation.totalAssets();
         BigDecimal initialSeedAmount = pair.round.getInitialSeedAmount();
         BigDecimal accountProfitLoss = totalAssets.subtract(initialSeedAmount);
         BigDecimal accountProfitLossRate = initialSeedAmount.compareTo(BigDecimal.ZERO) > 0
@@ -283,17 +267,51 @@ public class BalanceService {
                 : BigDecimal.ZERO;
 
         return new BalanceSummaryResponse(
-                totalCashKrw,
-                totalStockBuyAmount,
-                totalStockEvaluation,
+                valuation.totalCashKrw(),
+                valuation.totalStockBuyAmount(),
+                valuation.totalStockEvaluation(),
                 totalStockUnrealizedProfitLoss,
                 totalStockUnrealizedProfitLossRate,
                 totalAssets,
                 accountProfitLoss,
                 accountProfitLossRate,
-                cashBalances.stream().map(CashBalanceResponse::from).toList(),
-                holdings.size()
+                valuation.cashBalances().stream().map(CashBalanceResponse::from).toList(),
+                valuation.holdings().size()
         );
+    }
+
+    /**
+     * 자산 흐름 조회
+     * 외부 API 호출(현재가 조회)이 포함되므로 트랜잭션 분리:
+     * 1. calculateValuation: 외부 IO, 트랜잭션 없음
+     * 2. portfolioSnapshotService.upsertTodaySnapshot: DB 저장, REQUIRES_NEW 트랜잭션 (별도 Bean)
+     * 3. 스냅샷 조회: 읽기 전용
+     */
+    public AssetFlowResponse getAssetFlow(Long userId, String range) {
+        var pair = resolveAccountAndRound(userId);
+
+        // 1단계: 외부 API 호출 (트랜잭션 없음, 느린 IO)
+        ValuationSummary valuation = calculateValuation(pair);
+
+        // 2단계: 스냅샷 저장 (별도 Bean에서 새 트랜잭션으로 실행)
+        portfolioSnapshotService.upsertTodaySnapshot(
+                pair.account,
+                pair.round,
+                valuation.totalAssets(),
+                valuation.cashKrwAmount(),
+                valuation.cashUsdAmount(),
+                valuation.usdKrwRate(),
+                valuation.totalStockEvaluation());
+
+        // 3단계: 스냅샷 조회 (읽기 전용)
+        LocalDate fromDate = resolveFlowStartDate(range, pair.round);
+        List<AssetFlowPointResponse> points = portfolioSnapshotRepository
+                .findRange(pair.account.getAccountId(), pair.round.getSimulationRoundId(), fromDate)
+                .stream()
+                .map(snapshot -> toAssetFlowPoint(snapshot, pair.round.getInitialSeedAmount()))
+                .toList();
+
+        return new AssetFlowResponse(points);
     }
 
     /**
@@ -305,13 +323,18 @@ public class BalanceService {
         Long accountId = pair.account.getAccountId();
         Long roundId = pair.round.getSimulationRoundId();
 
-        BigDecimal usdKrwRate = resolveUsdKrwRate();
-
         List<CashBalance> cashBalances = cashBalanceRepository
                 .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId);
-
         List<Holding> holdings = holdingRepository.findAllActiveHoldings(accountId, roundId);
-        Map<String, BigDecimal> priceMap = resolveHoldingPrices(holdings);
+
+        // USD 노출이 있을 때만 환율 조회
+        boolean hasUsdExposure = cashBalances.stream()
+                .anyMatch(cb -> "USD".equals(cb.getCurrencyCode())
+                        && cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0)
+                || holdings.stream().anyMatch(h -> "USD".equals(h.getInstrument().getCurrencyCode()));
+        BigDecimal usdKrwRate = hasUsdExposure ? resolveUsdKrwRate() : BigDecimal.ZERO;
+
+        Map<Long, BigDecimal> priceMap = resolveHoldingPrices(holdings);
 
         // 총자산 = 모든 현금(KRW 환산) + 모든 주식 평가금액(KRW)
         BigDecimal totalCashKrw = cashBalances.stream()
@@ -322,10 +345,14 @@ public class BalanceService {
         for (Holding h : holdings) {
             String currency = h.getInstrument().getCurrencyCode();
             long qty = h.getHoldingQuantity();
-            BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
+            BigDecimal price = priceMap.get(h.getInstrument().getInstrumentId());
+            BigDecimal fallbackBuyKrw = h.getAvgBuyPrice()
+                    .multiply(BigDecimal.valueOf(qty))
+                    .multiply(h.getAvgBuyExchangeRate())
+                    .setScale(0, RoundingMode.HALF_UP);
             BigDecimal evalKrw = price != null
                     ? toKrw(currency, price.multiply(BigDecimal.valueOf(qty)), usdKrwRate)
-                    : toKrw(currency, h.getAvgBuyPrice().multiply(BigDecimal.valueOf(qty)).multiply(h.getAvgBuyExchangeRate()), usdKrwRate);
+                    : fallbackBuyKrw;
             totalStockEvaluation = totalStockEvaluation.add(evalKrw);
         }
 
@@ -349,10 +376,11 @@ public class BalanceService {
         for (Holding h : holdings) {
             String currency = h.getInstrument().getCurrencyCode();
             long qty = h.getHoldingQuantity();
-            BigDecimal price = priceMap.get(h.getInstrument().getStockCode());
-            BigDecimal buyKrw = toKrw(currency,
-                    h.getAvgBuyPrice().multiply(BigDecimal.valueOf(qty)).multiply(h.getAvgBuyExchangeRate()),
-                    usdKrwRate);
+            BigDecimal price = priceMap.get(h.getInstrument().getInstrumentId());
+            BigDecimal buyKrw = h.getAvgBuyPrice()
+                    .multiply(BigDecimal.valueOf(qty))
+                    .multiply(h.getAvgBuyExchangeRate())
+                    .setScale(0, RoundingMode.HALF_UP);
             BigDecimal evalKrw = price != null
                     ? toKrw(currency, price.multiply(BigDecimal.valueOf(qty)), usdKrwRate)
                     : buyKrw;
@@ -401,6 +429,17 @@ public class BalanceService {
     }
 
     private record AccountRound(Account account, SimulationRound round) {}
+    private record ValuationSummary(
+            List<CashBalance> cashBalances,
+            List<Holding> holdings,
+            BigDecimal usdKrwRate,
+            BigDecimal cashKrwAmount,
+            BigDecimal cashUsdAmount,
+            BigDecimal totalCashKrw,
+            BigDecimal totalStockBuyAmount,
+            BigDecimal totalStockEvaluation,
+            BigDecimal totalAssets
+    ) {}
 
     private AccountRound resolveAccountAndRound(Long userId) {
         Account account = accountRepository.findByUser_UserId(userId)
@@ -412,26 +451,134 @@ public class BalanceService {
     }
 
     /**
-     * 보유 종목 목록의 현재가를 국내/해외 구분해서 한 번에 조회
-     * key = stockCode, value = currentPrice (조회 실패 시 key 없음)
+     * 보유 종목 목록의 현재가를 국내/해외 구분해서 조회
+     * key = instrumentId (stockCode 기반 충돌 방지)
      */
-    private Map<String, BigDecimal> resolveHoldingPrices(List<Holding> holdings) {
-        List<String> domesticCodes = holdings.stream()
+    private Map<Long, BigDecimal> resolveHoldingPrices(List<Holding> holdings) {
+        Map<Long, BigDecimal> prices = new java.util.HashMap<>();
+        prices.putAll(priceLookupService.resolveDomesticPricesByInstrument(holdings.stream()
                 .filter(h -> DOMESTIC_MARKET_TYPES.contains(h.getInstrument().getMarketType()))
-                .map(h -> h.getInstrument().getStockCode())
-                .toList();
-
-        List<Map.Entry<String, String>> foreignPairs = holdings.stream()
+                .map(h -> Map.entry(
+                        h.getInstrument().getInstrumentId(),
+                        h.getInstrument().getStockCode()))
+                .toList()));
+        prices.putAll(priceLookupService.resolveForeignPricesByInstrument(holdings.stream()
                 .filter(h -> OVERSEAS_MARKET_TYPES.contains(h.getInstrument().getMarketType()))
                 .map(h -> Map.entry(
-                        h.getInstrument().getStockCode(),
-                        toForeignExchcd(h.getInstrument().getExchangeCode())))
-                .toList();
-
-        Map<String, BigDecimal> prices = new java.util.HashMap<>();
-        prices.putAll(priceLookupService.resolveDomesticPrices(domesticCodes));
-        prices.putAll(priceLookupService.resolveForeignPrices(foreignPairs));
+                        h.getInstrument().getInstrumentId(),
+                        Map.entry(
+                                h.getInstrument().getStockCode(),
+                                toForeignExchcd(h.getInstrument().getExchangeCode()))))
+                .toList()));
         return prices;
+    }
+
+    private ValuationSummary calculateValuation(AccountRound pair) {
+        Long accountId = pair.account.getAccountId();
+        Long roundId = pair.round.getSimulationRoundId();
+
+        List<CashBalance> cashBalances = cashBalanceRepository
+                .findByAccount_AccountIdAndSimulationRound_SimulationRoundId(accountId, roundId);
+        List<Holding> holdings = holdingRepository.findAllActiveHoldings(accountId, roundId);
+
+        boolean hasUsdExposure = cashBalances.stream()
+                .anyMatch(cb -> "USD".equals(cb.getCurrencyCode())
+                        && cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0)
+                || holdings.stream().anyMatch(h -> "USD".equals(h.getInstrument().getCurrencyCode()));
+        BigDecimal usdKrwRate = hasUsdExposure ? resolveUsdKrwRate() : BigDecimal.ZERO;
+
+        BigDecimal cashKrwAmount = cashBalances.stream()
+                .filter(cb -> "KRW".equals(cb.getCurrencyCode()))
+                .map(CashBalance::getTotalAmount)
+                .findFirst()
+                .orElse(BigDecimal.ZERO);
+        BigDecimal cashUsdAmount = cashBalances.stream()
+                .filter(cb -> "USD".equals(cb.getCurrencyCode()))
+                .map(CashBalance::getTotalAmount)
+                .findFirst()
+                .orElse(BigDecimal.ZERO);
+
+        BigDecimal totalCashKrw = cashBalances.stream()
+                .map(cb -> toKrw(cb.getCurrencyCode(), cb.getTotalAmount(), usdKrwRate))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        Map<Long, BigDecimal> priceMap = resolveHoldingPrices(holdings);
+
+        BigDecimal totalStockBuyAmount = BigDecimal.ZERO;
+        BigDecimal totalStockEvaluation = BigDecimal.ZERO;
+        for (Holding h : holdings) {
+            String currency = h.getInstrument().getCurrencyCode();
+            long qty = h.getHoldingQuantity();
+            BigDecimal buyKrw = h.getAvgBuyPrice()
+                    .multiply(BigDecimal.valueOf(qty))
+                    .multiply(h.getAvgBuyExchangeRate())
+                    .setScale(0, RoundingMode.HALF_UP);
+            BigDecimal price = priceMap.get(h.getInstrument().getInstrumentId());
+            BigDecimal evalKrw = price != null
+                    ? toKrw(currency, price.multiply(BigDecimal.valueOf(qty)), usdKrwRate)
+                    : buyKrw;
+            totalStockBuyAmount = totalStockBuyAmount.add(buyKrw);
+            totalStockEvaluation = totalStockEvaluation.add(evalKrw);
+        }
+
+        BigDecimal totalAssets = totalCashKrw.add(totalStockEvaluation);
+        return new ValuationSummary(
+                cashBalances,
+                holdings,
+                usdKrwRate,
+                cashKrwAmount,
+                cashUsdAmount,
+                totalCashKrw,
+                totalStockBuyAmount,
+                totalStockEvaluation,
+                totalAssets
+        );
+    }
+
+
+    private BigDecimal computeDailyReturnRate(Long accountId, Long roundId, LocalDate snapshotDate, BigDecimal totalAssets) {
+        return portfolioSnapshotRepository.findPreviousSnapshots(
+                accountId, roundId, snapshotDate, PageRequest.of(0, 1)).stream()
+                .findFirst()
+                .map(previous -> previous.getTotalValue().compareTo(BigDecimal.ZERO) > 0
+                        ? totalAssets.divide(previous.getTotalValue(), 6, RoundingMode.HALF_UP)
+                                .subtract(BigDecimal.ONE)
+                                .multiply(BigDecimal.valueOf(100))
+                                .setScale(2, RoundingMode.HALF_UP)
+                        : BigDecimal.ZERO)
+                .orElse(BigDecimal.ZERO);
+    }
+
+    private LocalDate resolveFlowStartDate(String range, SimulationRound round) {
+        LocalDate today = LocalDate.now();
+        LocalDate roundStartDate = round.getStartedAt().toLocalDate();
+        if (range == null || range.isBlank()) {
+            return roundStartDate;
+        }
+        LocalDate candidate = switch (range.trim().toUpperCase()) {
+            case "1W" -> today.minusWeeks(1).plusDays(1);
+            case "1M" -> today.minusMonths(1).plusDays(1);
+            case "3M" -> today.minusMonths(3).plusDays(1);
+            case "YTD" -> LocalDate.of(today.getYear(), 1, 1);
+            case "ALL" -> roundStartDate;
+            default -> roundStartDate;
+        };
+        return candidate.isBefore(roundStartDate) ? roundStartDate : candidate;
+    }
+
+    private AssetFlowPointResponse toAssetFlowPoint(PortfolioSnapshot snapshot, BigDecimal initialSeedAmount) {
+        BigDecimal cumulativeReturnRate = initialSeedAmount.compareTo(BigDecimal.ZERO) > 0
+                ? snapshot.getTotalValue().divide(initialSeedAmount, 6, RoundingMode.HALF_UP)
+                        .subtract(BigDecimal.ONE)
+                        .multiply(BigDecimal.valueOf(100))
+                        .setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        return new AssetFlowPointResponse(
+                snapshot.getSnapshotDate(),
+                snapshot.getTotalValue().setScale(0, RoundingMode.HALF_UP),
+                snapshot.getDailyReturn() != null ? snapshot.getDailyReturn() : BigDecimal.ZERO,
+                cumulativeReturnRate
+        );
     }
 
     private BigDecimal fetchCurrentPrice(Instrument instrument) {

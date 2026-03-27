@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import java.math.BigDecimal;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
@@ -25,7 +26,14 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             Long accountId, Long simulationRoundId, List<OrderStatus> statuses);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT o FROM Order o WHERE o.orderId = :orderId")
+    @Query("""
+            SELECT o FROM Order o
+            JOIN FETCH o.account a
+            JOIN FETCH a.user
+            JOIN FETCH o.simulationRound
+            JOIN FETCH o.instrument
+            WHERE o.orderId = :orderId
+            """)
     Optional<Order> findByIdForUpdate(@Param("orderId") Long orderId);
 
     @Query("""
@@ -33,9 +41,24 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             WHERE o.instrument.instrumentId = :instrumentId
               AND o.orderStatus = com.sollite.order.domain.enums.OrderStatus.PENDING
               AND o.orderKind = com.sollite.order.domain.enums.OrderKind.LIMIT
+              AND o.orderSide = com.sollite.order.domain.enums.OrderSide.BUY
+              AND o.orderPrice >= :tickPrice
             ORDER BY o.requestedAt ASC
             """)
-    List<Order> findPendingLimitOrders(@Param("instrumentId") Long instrumentId);
+    List<Order> findMatchablePendingBuyLimitOrders(@Param("instrumentId") Long instrumentId,
+                                                   @Param("tickPrice") BigDecimal tickPrice);
+
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.instrument.instrumentId = :instrumentId
+              AND o.orderStatus = com.sollite.order.domain.enums.OrderStatus.PENDING
+              AND o.orderKind = com.sollite.order.domain.enums.OrderKind.LIMIT
+              AND o.orderSide = com.sollite.order.domain.enums.OrderSide.SELL
+              AND o.orderPrice <= :tickPrice
+            ORDER BY o.requestedAt ASC
+            """)
+    List<Order> findMatchablePendingSellLimitOrders(@Param("instrumentId") Long instrumentId,
+                                                    @Param("tickPrice") BigDecimal tickPrice);
 
     @Query("""
             SELECT o FROM Order o
