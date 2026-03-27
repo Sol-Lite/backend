@@ -34,9 +34,23 @@ public interface PriceAlertRepository extends JpaRepository<PriceAlert, Long> {
     @Query("DELETE FROM PriceAlert p WHERE p.userId = :userId AND p.instrumentId = :instrumentId")
     void deleteByUserIdAndInstrumentId(@Param("userId") Long userId, @Param("instrumentId") Long instrumentId);
 
-    /** 서버 기동 시 활성 알림의 instrumentId 목록 조회 (ActivePriceAlertRegistry 복구용) */
-    @Query("SELECT DISTINCT p.instrumentId FROM PriceAlert p WHERE p.activeYn = 'Y'")
-    List<Long> findAllActiveInstrumentIds();
+    /**
+     * 서버 기동 시 종목별 활성 알림 수 집계 (ActivePriceAlertRegistry 복구용).
+     * 카운터 기반 레지스트리에 실제 알림 수만큼 register()를 호출하기 위해 사용한다.
+     * result[0] = instrumentId (Long), result[1] = count (Long)
+     */
+    @Query("SELECT p.instrumentId, COUNT(p) FROM PriceAlert p WHERE p.activeYn = 'Y' GROUP BY p.instrumentId")
+    List<Object[]> countActiveGroupedByInstrumentId();
+
+    /**
+     * 당일 미트리거 활성 알림 존재 여부 확인 (락 없이 빠르게 조회).
+     * 당일 이미 전부 트리거된 종목은 이 단계에서 조기 종료하여 PESSIMISTIC_WRITE 락 진입을 방지한다.
+     */
+    @Query("SELECT COUNT(p) > 0 FROM PriceAlert p WHERE p.instrumentId IN :instrumentIds " +
+           "AND p.activeYn = 'Y' AND (p.triggeredAt IS NULL OR p.triggeredAt < :todayStart)")
+    boolean existsUntriggeredTodayByInstrumentIds(
+            @Param("instrumentIds") List<Long> instrumentIds,
+            @Param("todayStart") java.time.LocalDateTime todayStart);
 
     /** 알림 설정 임계값 변경 시 PERCENT 타입 활성 알림만 업데이트 */
     @Modifying(clearAutomatically = true)

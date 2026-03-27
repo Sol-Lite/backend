@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.MessageDeliveryException;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
@@ -38,15 +39,15 @@ public class StompAuthInterceptor implements ChannelInterceptor {
         if (accessor == null) return message;
 
         if (StompCommand.CONNECT.equals(accessor.getCommand())) {
-            handleConnect(accessor);
+            handleConnect(message, accessor);
         } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
-            handleSubscribe(accessor);
+            handleSubscribe(message, accessor);
         }
 
         return message;
     }
 
-    private void handleConnect(StompHeaderAccessor accessor) {
+    private void handleConnect(Message<?> message, StompHeaderAccessor accessor) {
         String authHeader = accessor.getFirstNativeHeader("Authorization");
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             log.debug("[STOMP] CONNECT: Authorization 헤더 없음 — 비인증 연결 허용");
@@ -56,7 +57,7 @@ public class StompAuthInterceptor implements ChannelInterceptor {
         String token = authHeader.substring(7);
         if (!jwtTokenProvider.validateToken(token)) {
             log.warn("[STOMP] CONNECT: 유효하지 않은 JWT");
-            throw new IllegalArgumentException("유효하지 않은 토큰입니다");
+            throw new MessageDeliveryException(message, "유효하지 않은 토큰입니다");
         }
 
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
@@ -64,7 +65,7 @@ public class StompAuthInterceptor implements ChannelInterceptor {
         log.debug("[STOMP] CONNECT: userId={} 인증 완료", userId);
     }
 
-    private void handleSubscribe(StompHeaderAccessor accessor) {
+    private void handleSubscribe(Message<?> message, StompHeaderAccessor accessor) {
         String destination = accessor.getDestination();
         if (destination == null || !destination.startsWith(NOTIFICATION_TOPIC_PREFIX)) {
             return; // 알림 토픽이 아니면 검증 생략
@@ -76,7 +77,7 @@ public class StompAuthInterceptor implements ChannelInterceptor {
         if (principal == null || !subscribedUserId.equals(principal.getName())) {
             log.warn("[STOMP] SUBSCRIBE: 알림 구독 권한 없음 - destination={}, principal={}",
                     destination, principal != null ? principal.getName() : "null");
-            throw new IllegalArgumentException("해당 알림 채널에 구독 권한이 없습니다");
+            throw new MessageDeliveryException(message, "해당 알림 채널에 구독 권한이 없습니다");
         }
     }
 }
