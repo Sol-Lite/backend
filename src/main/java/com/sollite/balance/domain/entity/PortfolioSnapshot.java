@@ -14,7 +14,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "portfolio_snapshots")
+@Table(name = "portfolio_snapshots",
+       uniqueConstraints = @UniqueConstraint(
+           columnNames = {"account_id", "simulation_round_id", "snapshot_date"},
+           name = "uq_psnap_acct_round_date"
+       ))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class PortfolioSnapshot {

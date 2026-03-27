@@ -67,7 +67,7 @@ public class ExchangeService {
 
         BigDecimal available = fromBalance.getAvailableAmount();
         BigDecimal estimated = null;
-        BigDecimal feeAmount = null;
+        BigDecimal feeAmount = BigDecimal.ZERO;
         if (requestAmount != null && requestAmount.compareTo(BigDecimal.ZERO) > 0) {
             feeAmount = calculateFeeAmount(requestAmount);
             estimated = calculateReceiveAmount(fromCurrency, requestAmount, rate, feeAmount);

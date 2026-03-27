@@ -32,7 +32,9 @@ import com.sollite.market.domain.repository.InstrumentRepository;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -58,6 +60,7 @@ public class BalanceService {
     private final MarketService marketService;
     private final ForeignStockMarketService foreignStockMarketService;
     private final PriceLookupService priceLookupService;
+    private final PortfolioSnapshotService portfolioSnapshotService;
 
     private static final BigDecimal SEED_MONEY = new BigDecimal("100000000");
 
@@ -277,11 +280,30 @@ public class BalanceService {
         );
     }
 
-    @Transactional
+    /**
+     * 자산 흐름 조회
+     * 외부 API 호출(현재가 조회)이 포함되므로 트랜잭션 분리:
+     * 1. calculateValuation: 외부 IO, 트랜잭션 없음
+     * 2. portfolioSnapshotService.upsertTodaySnapshot: DB 저장, REQUIRES_NEW 트랜잭션 (별도 Bean)
+     * 3. 스냅샷 조회: 읽기 전용
+     */
     public AssetFlowResponse getAssetFlow(Long userId, String range) {
         var pair = resolveAccountAndRound(userId);
-        upsertTodaySnapshot(pair);
 
+        // 1단계: 외부 API 호출 (트랜잭션 없음, 느린 IO)
+        ValuationSummary valuation = calculateValuation(pair);
+
+        // 2단계: 스냅샷 저장 (별도 Bean에서 새 트랜잭션으로 실행)
+        portfolioSnapshotService.upsertTodaySnapshot(
+                pair.account,
+                pair.round,
+                valuation.totalAssets(),
+                valuation.cashKrwAmount(),
+                valuation.cashUsdAmount(),
+                valuation.usdKrwRate(),
+                valuation.totalStockEvaluation());
+
+        // 3단계: 스냅샷 조회 (읽기 전용)
         LocalDate fromDate = resolveFlowStartDate(range, pair.round);
         List<AssetFlowPointResponse> points = portfolioSnapshotRepository
                 .findRange(pair.account.getAccountId(), pair.round.getSimulationRoundId(), fromDate)
@@ -513,43 +535,10 @@ public class BalanceService {
         );
     }
 
-    private void upsertTodaySnapshot(AccountRound pair) {
-        ValuationSummary valuation = calculateValuation(pair);
-        LocalDate today = LocalDate.now();
-        BigDecimal dailyReturn = computeDailyReturnRate(
-                pair.account.getAccountId(),
-                pair.round.getSimulationRoundId(),
-                today,
-                valuation.totalAssets());
-
-        PortfolioSnapshot snapshot = portfolioSnapshotRepository
-                .findByAccount_AccountIdAndSimulationRound_SimulationRoundIdAndSnapshotDate(
-                        pair.account.getAccountId(), pair.round.getSimulationRoundId(), today)
-                .orElseGet(() -> PortfolioSnapshot.builder()
-                        .account(pair.account)
-                        .simulationRound(pair.round)
-                        .snapshotDate(today)
-                        .totalValue(BigDecimal.ZERO)
-                        .cashKrw(BigDecimal.ZERO)
-                        .cashUsd(BigDecimal.ZERO)
-                        .usdExchangeRate(BigDecimal.ONE)
-                        .stockValue(BigDecimal.ZERO)
-                        .dailyReturn(BigDecimal.ZERO)
-                        .build());
-
-        snapshot.updateMetrics(
-                valuation.totalAssets(),
-                valuation.cashKrwAmount(),
-                valuation.cashUsdAmount(),
-                valuation.usdKrwRate().compareTo(BigDecimal.ZERO) > 0 ? valuation.usdKrwRate() : BigDecimal.ONE,
-                valuation.totalStockEvaluation(),
-                dailyReturn
-        );
-        portfolioSnapshotRepository.save(snapshot);
-    }
 
     private BigDecimal computeDailyReturnRate(Long accountId, Long roundId, LocalDate snapshotDate, BigDecimal totalAssets) {
-        return portfolioSnapshotRepository.findPreviousSnapshots(accountId, roundId, snapshotDate).stream()
+        return portfolioSnapshotRepository.findPreviousSnapshots(
+                accountId, roundId, snapshotDate, PageRequest.of(0, 1)).stream()
                 .findFirst()
                 .map(previous -> previous.getTotalValue().compareTo(BigDecimal.ZERO) > 0
                         ? totalAssets.divide(previous.getTotalValue(), 6, RoundingMode.HALF_UP)

@@ -8,9 +8,11 @@ import com.sollite.balance.dto.HoldingResponse;
 import com.sollite.balance.dto.PortfolioResponse;
 import com.sollite.balance.service.BalanceService;
 import com.sollite.global.util.AuthUtil;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,6 +22,7 @@ import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
+@Validated
 public class BalanceController {
 
     private final BalanceService balanceService;
@@ -79,7 +82,9 @@ public class BalanceController {
     @GetMapping("/api/balance/flow")
     public ResponseEntity<AssetFlowResponse> getAssetFlow(
             Authentication authentication,
-            @RequestParam(defaultValue = "1M") String range) {
+            @RequestParam(defaultValue = "1M")
+            @Pattern(regexp = "1W|1M|3M|YTD|ALL", message = "허용된 range 값: 1W, 1M, 3M, YTD, ALL")
+            String range) {
         Long userId = AuthUtil.getUserId(authentication);
         return ResponseEntity.ok(balanceService.getAssetFlow(userId, range));
     }

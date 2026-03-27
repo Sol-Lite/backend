@@ -81,12 +81,29 @@ public class OrderMatchingService {
         while (true) {
             MarketTickEvent event = latestTick.getAndSet(null);
             if (event == null) {
-                running.set(false);
-                if (latestTick.get() != null && running.compareAndSet(false, true)) {
-                    continue;
+                // 원자적으로 running을 true에서 false로 변경
+                if (!running.compareAndSet(true, false)) {
+                    // compareAndSet 실패: running이 이미 false
+                    return;
                 }
-                latestTicks.remove(key, latestTick);
-                runningStates.remove(key, running);
+
+                // double-check: running=false 설정 후 새 틱이 왔는지 확인
+                if (latestTick.get() != null) {
+                    // 새 틱 도착: running을 다시 true로 설정하고 continue
+                    // (이 사이에 onMarketTick에서 compareAndSet을 시도하면 실패함)
+                    if (running.compareAndSet(false, true)) {
+                        continue;
+                    }
+                    // compareAndSet 실패: 다른 스레드가 이미 true로 설정
+                    // 새 worker가 시작될 것이므로 이 루프는 종료
+                    return;
+                }
+
+                // 새 틱이 없고 running=false이므로 종료
+                // cleanup은 skip: latestTicks/runningStates map entry 제거 전
+                // onMarketTick에서 새 틱이 올 수 있으므로, entry를 남겨두고
+                // compareAndSet(false, true)로 새 worker를 제출하도록 함
+                // (map entry는 종목 개수만큼만 있으므로 무한정 증가하지 않음)
                 return;
             }
 

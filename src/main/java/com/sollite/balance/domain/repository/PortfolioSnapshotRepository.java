@@ -1,6 +1,7 @@
 package com.sollite.balance.domain.repository;
 
 import com.sollite.balance.domain.entity.PortfolioSnapshot;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -34,5 +35,6 @@ public interface PortfolioSnapshotRepository extends JpaRepository<PortfolioSnap
             """)
     List<PortfolioSnapshot> findPreviousSnapshots(@Param("accountId") Long accountId,
                                                   @Param("roundId") Long roundId,
-                                                  @Param("snapshotDate") LocalDate snapshotDate);
+                                                  @Param("snapshotDate") LocalDate snapshotDate,
+                                                  Pageable pageable);
 }

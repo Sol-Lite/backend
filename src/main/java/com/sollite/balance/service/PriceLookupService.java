@@ -11,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import org.springframework.beans.factory.annotation.Qualifier;
+
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -19,7 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 /**
@@ -40,9 +41,9 @@ public class PriceLookupService {
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
 
-    private static final int PARALLELISM = 6;
-    private static final Executor PRICE_EXECUTOR = Executors.newFixedThreadPool(PARALLELISM,
-            r -> new Thread(r, "price-lookup"));
+    @Qualifier("priceExecutor")
+    private final Executor priceExecutor;
+
     private static final String BALANCE_PRICE_SNAPSHOT_PREFIX = "balance:price:snapshot:";
     private static final Duration BALANCE_PRICE_SNAPSHOT_TTL = Duration.ofHours(48);
 
@@ -189,7 +190,7 @@ public class PriceLookupService {
                         .supplyAsync(() -> {
                             BigDecimal price = resolver.apply(entry);
                             return (Map.Entry<K, BigDecimal>) new AbstractMap.SimpleEntry<>(entry.getKey(), price);
-                        }, PRICE_EXECUTOR)
+                        }, priceExecutor)
                         .exceptionally(e -> new AbstractMap.SimpleEntry<>(entry.getKey(), null)))
                 .toList();
 
@@ -208,7 +209,7 @@ public class PriceLookupService {
                         .supplyAsync(() -> {
                             PriceQuote quote = resolver.apply(entry);
                             return (Map.Entry<K, PriceQuote>) new AbstractMap.SimpleEntry<>(entry.getKey(), quote);
-                        }, PRICE_EXECUTOR)
+                        }, priceExecutor)
                         .exceptionally(e -> new AbstractMap.SimpleEntry<>(entry.getKey(), null)))
                 .toList();
 
