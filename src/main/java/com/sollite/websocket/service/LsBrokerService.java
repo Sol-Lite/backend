@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.global.service.LsTokenService;
 import com.sollite.market.domain.repository.InstrumentRepository;
 import com.sollite.notifications.event.PriceChangeEvent;
+import com.sollite.notifications.service.ActivePriceAlertRegistry;
 import com.sollite.order.event.MarketTickEvent;
 import com.sollite.order.service.ActiveOrderRegistry;
 import jakarta.annotation.PostConstruct;
@@ -46,6 +47,7 @@ public class LsBrokerService {
     private final InstrumentRepository instrumentRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final ActiveOrderRegistry activeOrderRegistry;
+    private final ActivePriceAlertRegistry activePriceAlertRegistry;
 
     private static final String INDEX_SNAPSHOT_PREFIX = "index:snapshot:";
     private static final Duration INDEX_SNAPSHOT_TTL = Duration.ofHours(48);
@@ -364,7 +366,9 @@ public class LsBrokerService {
                 }
             }
 
-            if ("US3".equals(trCd) || "GSC".equals(trCd)) {
+            // 체결 틱(US3/GSC)이고 활성 가격 알림이 있는 종목일 때만 가격 변동 이벤트 발행
+            if (("US3".equals(trCd) || "GSC".equals(trCd))
+                    && activePriceAlertRegistry.hasActiveAlerts(symbol)) {
                 java.math.BigDecimal tickPrice = extractTradePrice(trCd, body);
                 if (tickPrice != null) {
                     applicationEventPublisher.publishEvent(

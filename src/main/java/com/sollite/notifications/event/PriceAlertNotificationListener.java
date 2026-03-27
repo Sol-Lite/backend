@@ -9,6 +9,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * 가격 알림 이벤트 수신 → 알림 생성/전송.
  *
@@ -16,6 +21,10 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * 커밋된 이후에만 실행되어, outer 롤백 시 중복 알림 발송을 방지한다.
  *
  * @Async("notificationExecutor"): 별도 스레드에서 실행하여 PriceAlertChecker 스레드를 블로킹하지 않는다.
+ *
+ * [중복 억제]
+ * isTriggeredToday() + PESSIMISTIC_WRITE으로 1차 중복이 차단되지만,
+ * 예외적인 재시도 상황에 대비해 인메모리 시간 윈도우(1분) 기반 중복 억제를 추가로 적용한다.
  */
 @Slf4j
 @Component
@@ -24,10 +33,17 @@ public class PriceAlertNotificationListener {
 
     private final NotificationService notificationService;
 
+    private static final Duration DEDUP_WINDOW = Duration.ofMinutes(1);
+
+    /** 최근 전송된 알림 키 → 전송 시각. 키: userId:notificationType:alertId */
+    private final Map<String, Instant> recentlySent = new ConcurrentHashMap<>();
+
     @Async("notificationExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handlePriceAlertTriggered(PriceAlertTriggeredEvent event) {
         try {
+            if (isDuplicate(event)) return;
+
             Notification notification = Notification.builder()
                     .userId(event.userId())
                     .notificationType(event.notificationType())
@@ -45,5 +61,28 @@ public class PriceAlertNotificationListener {
             log.error("[PRICE_ALERT] 알림 전송 실패 - alertId={}, error={}",
                     event.alertId(), e.getMessage(), e);
         }
+    }
+
+    /**
+     * 동일 사용자/종목/알림 타입의 알림이 DEDUP_WINDOW 내에 이미 전송됐으면 true 반환.
+     * 만료된 항목을 함께 정리한다.
+     */
+    private boolean isDuplicate(PriceAlertTriggeredEvent event) {
+        Instant now = Instant.now();
+        // alertId 기준으로 키 구성 — 같은 종목에 여러 알림(목표가+등락률)이 동시 충족되어도 각각 독립 처리
+        String key = event.userId() + ":" + event.notificationType() + ":" + event.alertId();
+
+        // 만료 항목 정리
+        recentlySent.entrySet().removeIf(e ->
+                Duration.between(e.getValue(), now).compareTo(DEDUP_WINDOW) >= 0);
+
+        // putIfAbsent: 원자적으로 키 등록 — 동시 스레드가 같은 키를 동시에 처리해도 하나만 통과
+        Instant existing = recentlySent.putIfAbsent(key, now);
+        if (existing != null && Duration.between(existing, now).compareTo(DEDUP_WINDOW) < 0) {
+            log.debug("[PRICE_ALERT] 중복 알림 억제 - userId={}, alertId={}",
+                    event.userId(), event.alertId());
+            return true;
+        }
+        return false;
     }
 }
