@@ -35,7 +35,7 @@ public class PriceAlertNotificationListener {
 
     private static final Duration DEDUP_WINDOW = Duration.ofMinutes(1);
 
-    /** 최근 전송된 알림 키 → 전송 시각. 키: userId:notificationType:referenceId */
+    /** 최근 전송된 알림 키 → 전송 시각. 키: userId:notificationType:alertId */
     private final Map<String, Instant> recentlySent = new ConcurrentHashMap<>();
 
     @Async("notificationExecutor")
@@ -69,20 +69,20 @@ public class PriceAlertNotificationListener {
      */
     private boolean isDuplicate(PriceAlertTriggeredEvent event) {
         Instant now = Instant.now();
-        String key = event.userId() + ":" + event.notificationType() + ":" + event.referenceId();
+        // alertId 기준으로 키 구성 — 같은 종목에 여러 알림(목표가+등락률)이 동시 충족되어도 각각 독립 처리
+        String key = event.userId() + ":" + event.notificationType() + ":" + event.alertId();
 
         // 만료 항목 정리
         recentlySent.entrySet().removeIf(e ->
                 Duration.between(e.getValue(), now).compareTo(DEDUP_WINDOW) >= 0);
 
-        Instant lastSent = recentlySent.get(key);
-        if (lastSent != null && Duration.between(lastSent, now).compareTo(DEDUP_WINDOW) < 0) {
-            log.debug("[PRICE_ALERT] 중복 알림 억제 - userId={}, symbol={}",
-                    event.userId(), event.referenceId());
+        // putIfAbsent: 원자적으로 키 등록 — 동시 스레드가 같은 키를 동시에 처리해도 하나만 통과
+        Instant existing = recentlySent.putIfAbsent(key, now);
+        if (existing != null && Duration.between(existing, now).compareTo(DEDUP_WINDOW) < 0) {
+            log.debug("[PRICE_ALERT] 중복 알림 억제 - userId={}, alertId={}",
+                    event.userId(), event.alertId());
             return true;
         }
-
-        recentlySent.put(key, now);
         return false;
     }
 }
