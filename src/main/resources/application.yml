@@ -115,6 +115,16 @@ logging:
     reactor.netty: WARN
 
 
+# ── Actuator ──
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, metrics
+  endpoint:
+    health:
+      show-details: never
+
 # ── LS Securities API  & Websocket ──
 ls:
   api:
