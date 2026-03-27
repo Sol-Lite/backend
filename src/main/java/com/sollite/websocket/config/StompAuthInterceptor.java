@@ -1,56 +1,83 @@
 package com.sollite.websocket.config;
 
-import com.sollite.global.exception.BusinessException;
 import com.sollite.global.security.JwtTokenProvider;
-import com.sollite.user.exception.UserErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.MessageDeliveryException;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
 
+import java.security.Principal;
+
 /**
- * WebSocket STOMP 연결 시 JWT 토큰 검증
- * CONNECT 프레임에 Authorization 헤더가 있는지 확인하고 토큰 유효성 검증
+ * STOMP 채널 인터셉터.
+ *
+ * CONNECT: Authorization 헤더의 JWT를 검증하여 StompPrincipal(userId)을 세션에 바인딩.
+ * SUBSCRIBE: /topic/notifications/{userId} 구독 시 자신의 userId만 구독 가능하도록 검증.
+ *
+ * 인증 실패 시 예외를 던져 연결/구독을 차단한다.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class StompAuthInterceptor implements ChannelInterceptor {
 
+    private static final String NOTIFICATION_TOPIC_PREFIX = "/topic/notifications/";
+
     private final JwtTokenProvider jwtTokenProvider;
-    private static final String AUTH_HEADER = "Authorization";
-    private static final String BEARER_PREFIX = "Bearer ";
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
-        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(message);
+        StompHeaderAccessor accessor =
+                MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
-        // CONNECT 커맨드만 검증
+        if (accessor == null) return message;
+
         if (StompCommand.CONNECT.equals(accessor.getCommand())) {
-            String authHeader = accessor.getFirstNativeHeader(AUTH_HEADER);
-            if (authHeader == null || authHeader.isBlank()) {
-                log.warn("[WebSocket] Authorization 헤더 누락");
-                throw new BusinessException(UserErrorCode.INVALID_TOKEN);
-            }
-
-            String token = authHeader.startsWith(BEARER_PREFIX)
-                    ? authHeader.substring(BEARER_PREFIX.length())
-                    : authHeader;
-
-            if (!jwtTokenProvider.validateToken(token)) {
-                log.warn("[WebSocket] 토큰 유효성 검증 실패");
-                throw new BusinessException(UserErrorCode.INVALID_TOKEN);
-            }
-
-            // 토큰에서 userId 추출하여 accessor에 저장
-            Long userId = jwtTokenProvider.getUserIdFromToken(token);
-            accessor.addNativeHeader("X-User-Id", userId.toString());
+            handleConnect(message, accessor);
+        } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+            handleSubscribe(message, accessor);
         }
 
         return message;
+    }
+
+    private void handleConnect(Message<?> message, StompHeaderAccessor accessor) {
+        String authHeader = accessor.getFirstNativeHeader("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            log.debug("[STOMP] CONNECT: Authorization 헤더 없음 — 비인증 연결 허용");
+            return;
+        }
+
+        String token = authHeader.substring(7);
+        if (!jwtTokenProvider.validateToken(token)) {
+            log.warn("[STOMP] CONNECT: 유효하지 않은 JWT");
+            throw new MessageDeliveryException(message, "유효하지 않은 토큰입니다");
+        }
+
+        Long userId = jwtTokenProvider.getUserIdFromToken(token);
+        accessor.setUser(new StompPrincipal(String.valueOf(userId)));
+        log.debug("[STOMP] CONNECT: userId={} 인증 완료", userId);
+    }
+
+    private void handleSubscribe(Message<?> message, StompHeaderAccessor accessor) {
+        String destination = accessor.getDestination();
+        if (destination == null || !destination.startsWith(NOTIFICATION_TOPIC_PREFIX)) {
+            return; // 알림 토픽이 아니면 검증 생략
+        }
+
+        Principal principal = accessor.getUser();
+        String subscribedUserId = destination.substring(NOTIFICATION_TOPIC_PREFIX.length());
+
+        if (principal == null || !subscribedUserId.equals(principal.getName())) {
+            log.warn("[STOMP] SUBSCRIBE: 알림 구독 권한 없음 - destination={}, principal={}",
+                    destination, principal != null ? principal.getName() : "null");
+            throw new MessageDeliveryException(message, "해당 알림 채널에 구독 권한이 없습니다");
+        }
     }
 }
