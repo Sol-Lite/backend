@@ -2,6 +2,7 @@ package com.sollite.market.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.global.service.LsTokenService;
+import com.sollite.market.domain.repository.InstrumentRepository;
 import com.sollite.market.domain.repository.MarketDailyCandleRepository;
 import com.sollite.market.domain.repository.MarketMinuteCandleRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -35,6 +36,9 @@ class LsMarketServiceImplRankingTest {
 
     @Mock
     private Kospi200TargetService kospi200TargetService;
+
+    @Mock
+    private InstrumentRepository instrumentRepository;
 
     @Mock
     private MarketDailyCandleRepository marketDailyCandleRepository;
