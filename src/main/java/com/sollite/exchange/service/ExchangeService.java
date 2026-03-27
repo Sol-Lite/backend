@@ -40,6 +40,7 @@ public class ExchangeService {
 
     private static final Set<String> SUPPORTED_CURRENCIES = Set.of("KRW", "USD");
     private static final String REQUEST_CHANNEL = "API";
+    private static final BigDecimal FX_FEE_RATE = new BigDecimal("0.0175");
 
     private final AccountRepository accountRepository;
     private final SimulationRoundRepository simulationRoundRepository;
@@ -66,11 +67,13 @@ public class ExchangeService {
 
         BigDecimal available = fromBalance.getAvailableAmount();
         BigDecimal estimated = null;
+        BigDecimal feeAmount = null;
         if (requestAmount != null && requestAmount.compareTo(BigDecimal.ZERO) > 0) {
-            estimated = calculateReceiveAmount(fromCurrency, requestAmount, rate);
+            feeAmount = calculateFeeAmount(requestAmount);
+            estimated = calculateReceiveAmount(fromCurrency, requestAmount, rate, feeAmount);
         }
 
-        return new ExchangeAvailableResponse(fromCurrency, toCurrency, available, rate, estimated);
+        return new ExchangeAvailableResponse(fromCurrency, toCurrency, available, rate, feeAmount, estimated);
     }
 
     /**
@@ -118,7 +121,8 @@ public class ExchangeService {
         }
 
         BigDecimal rate = requireExchangeRate();
-        BigDecimal receiveAmount = calculateReceiveAmount(request.fromCurrency(), request.requestAmount(), rate);
+        BigDecimal feeAmount = calculateFeeAmount(request.requestAmount());
+        BigDecimal receiveAmount = calculateReceiveAmount(request.fromCurrency(), request.requestAmount(), rate, feeAmount);
         LocalDateTime now = LocalDateTime.now();
 
         fromBalance.deductForFx(request.requestAmount());
@@ -161,7 +165,7 @@ public class ExchangeService {
                 .toCurrencyCode(request.toCurrency())
                 .requestAmount(request.requestAmount())
                 .appliedRate(rate)
-                .feeAmount(BigDecimal.ZERO)
+                .feeAmount(feeAmount)
                 .receiveAmount(receiveAmount)
                 .fxOrderStatus(FxOrderStatus.COMPLETED)
                 .requestedAt(now)
@@ -175,7 +179,7 @@ public class ExchangeService {
                 request.toCurrency(),
                 request.requestAmount(),
                 rate,
-                BigDecimal.ZERO,
+                feeAmount,
                 receiveAmount,
                 fromBalance.getTotalAmount(),
                 toBalance.getTotalAmount(),
@@ -197,12 +201,17 @@ public class ExchangeService {
      * KRW→USD: receive = requestAmount / rate
      * USD→KRW: receive = requestAmount * rate
      */
-    private BigDecimal calculateReceiveAmount(String fromCurrency, BigDecimal requestAmount, BigDecimal rate) {
+    private BigDecimal calculateReceiveAmount(String fromCurrency, BigDecimal requestAmount, BigDecimal rate, BigDecimal feeAmount) {
+        BigDecimal netAmount = requestAmount.subtract(feeAmount);
         if ("KRW".equals(fromCurrency)) {
-            return requestAmount.divide(rate, 4, RoundingMode.DOWN);
+            return netAmount.divide(rate, 4, RoundingMode.DOWN);
         } else {
-            return requestAmount.multiply(rate).setScale(4, RoundingMode.DOWN);
+            return netAmount.multiply(rate).setScale(4, RoundingMode.DOWN);
         }
+    }
+
+    private BigDecimal calculateFeeAmount(BigDecimal requestAmount) {
+        return requestAmount.multiply(FX_FEE_RATE).setScale(4, RoundingMode.DOWN);
     }
 
     private void validateCurrencyPair(String fromCurrency, String toCurrency) {

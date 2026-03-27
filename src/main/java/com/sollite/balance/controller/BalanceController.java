@@ -1,5 +1,6 @@
 package com.sollite.balance.controller;
 
+import com.sollite.balance.dto.AssetFlowResponse;
 import com.sollite.balance.dto.BalanceSummaryResponse;
 import com.sollite.balance.dto.BuyableResponse;
 import com.sollite.balance.dto.CashBalanceResponse;
@@ -70,6 +71,17 @@ public class BalanceController {
     public ResponseEntity<BalanceSummaryResponse> getBalanceSummary(Authentication authentication) {
         Long userId = AuthUtil.getUserId(authentication);
         return ResponseEntity.ok(balanceService.getBalanceSummary(userId));
+    }
+
+    /**
+     * 자산 흐름 시계열
+     */
+    @GetMapping("/api/balance/flow")
+    public ResponseEntity<AssetFlowResponse> getAssetFlow(
+            Authentication authentication,
+            @RequestParam(defaultValue = "1M") String range) {
+        Long userId = AuthUtil.getUserId(authentication);
+        return ResponseEntity.ok(balanceService.getAssetFlow(userId, range));
     }
 
     /**

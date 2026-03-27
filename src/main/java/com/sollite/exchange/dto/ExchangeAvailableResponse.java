@@ -7,6 +7,7 @@ public record ExchangeAvailableResponse(
         String toCurrency,
         BigDecimal availableAmount,
         BigDecimal exchangeRate,
+        BigDecimal feeAmount,
         BigDecimal estimatedReceiveAmount
 ) {
 }
