@@ -11,8 +11,8 @@ spring:
     password: ${ORACLE_PASSWORD}
     driver-class-name: oracle.jdbc.OracleDriver
     hikari:
-      maximum-pool-size: 5
-      minimum-idle: 2
+      maximum-pool-size: 12
+      minimum-idle: 4
       connection-timeout: 30000
 
   jpa:
