@@ -1232,7 +1232,7 @@ class LsMarketServiceImpl implements MarketService {
                     .mapToObj(i -> filtered.get(i).withRank(i + 1))
                     .toList();
         } catch (BusinessException e) {
-            throw e;
+            throw e;  // catch (Exception e) 블록에서 MARKET_API_ERROR로 덮어씌워지는 것을 방지
         } catch (Exception e) {
             log.error("테마 순위 조회 중 예외 발생: theme={}, type={}", theme, type, e);
             throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
