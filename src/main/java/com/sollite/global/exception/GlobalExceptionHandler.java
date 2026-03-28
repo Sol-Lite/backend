@@ -11,6 +11,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 @Slf4j
 @RestControllerAdvice
@@ -38,7 +39,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
         Map<String, String> errors = new HashMap<>();
-        errors.put(e.getName(), "올바르지 않은 값입니다: " + e.getValue());
+        errors.put(e.getName(), "올바르지 않은 값입니다: " + Objects.toString(e.getValue(), "null"));
         ErrorResponse response = ErrorResponse.of(GlobalErrorCode.INVALID_INPUT, errors);
         return ResponseEntity.status(response.status()).body(response);
     }

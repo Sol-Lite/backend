@@ -15,9 +15,8 @@ import com.sollite.market.exception.MarketErrorCode;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.context.ApplicationContext;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -62,6 +61,7 @@ class LsMarketServiceImpl implements MarketService {
     private final Kospi200TargetService kospi200TargetService;
     private final InstrumentRepository instrumentRepository;
     private final InstrumentThemeMappingRepository instrumentThemeMappingRepository;
+    private final ApplicationContext applicationContext;
     private final MarketDailyCandleRepository marketDailyCandleRepository;
     private final MarketMinuteCandleRepository marketMinuteCandleRepository;
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
@@ -75,8 +75,6 @@ class LsMarketServiceImpl implements MarketService {
         return thread;
     });
     private Clock clock = Clock.systemDefaultZone();
-    @Lazy @Autowired private MarketService self;
-
     @PreDestroy
     void destroy() {
         minuteGapRefreshExecutor.shutdownNow();
@@ -1222,7 +1220,8 @@ class LsMarketServiceImpl implements MarketService {
                 return List.of();
             }
 
-            List<StockRankingItem> allRanking = self.getRanking(type, "all");
+            // @Cacheable 프록시를 통하기 위해 ApplicationContext에서 빈을 직접 조회
+            List<StockRankingItem> allRanking = applicationContext.getBean(MarketService.class).getRanking(type, "all");
 
             AtomicInteger rank = new AtomicInteger(1);
             return allRanking.stream()

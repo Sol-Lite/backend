@@ -1,5 +1,7 @@
 package com.sollite.market.controller;
 
+import com.sollite.global.exception.BusinessException;
+import com.sollite.global.exception.GlobalErrorCode;
 import com.sollite.market.domain.enums.StockTheme;
 import com.sollite.market.dto.*;
 import com.sollite.market.service.InstrumentService;
@@ -13,11 +15,15 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/market")
 @RequiredArgsConstructor
 public class MarketController {
+
+    private static final Set<String> ALLOWED_RANKING_TYPES =
+            Set.of("trading-value", "trading-volume", "rising", "falling", "market-cap");
     private final MarketService marketService;
     private final InstrumentService instrumentService;
 
@@ -115,6 +121,9 @@ public class MarketController {
     public ResponseEntity<List<StockRankingItem>> getThemeRanking(
             @PathVariable StockTheme theme,
             @RequestParam(defaultValue = "trading-value") String type) {
+        if (!ALLOWED_RANKING_TYPES.contains(type)) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT);
+        }
         return ResponseEntity.ok(marketService.getThemeRanking(theme, type));
     }
 

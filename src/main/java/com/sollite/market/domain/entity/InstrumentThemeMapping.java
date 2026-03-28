@@ -2,6 +2,7 @@ package com.sollite.market.domain.entity;
 
 import com.sollite.market.domain.enums.StockTheme;
 import jakarta.persistence.*;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -12,7 +13,7 @@ import lombok.NoArgsConstructor;
                 columnNames = {"instrument_id", "theme_code"}
         ))
 @Getter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class InstrumentThemeMapping {
 
     @Id
