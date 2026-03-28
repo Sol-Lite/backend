@@ -588,7 +588,10 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             String keysymbol,
             int nmin
     ) throws Exception {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.of("America/New_York"));
+        LocalDate sdate = today.getDayOfWeek() == java.time.DayOfWeek.SATURDAY ? today.minusDays(1)
+                : today.getDayOfWeek() == java.time.DayOfWeek.SUNDAY ? today.minusDays(2)
+                : today;
         Map<LocalDateTime, LsG3203Res.G3203OutBlock1> deduplicated = new LinkedHashMap<>();
         String ctsDate = "";
         String ctsTime = "";
@@ -608,7 +611,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
                             nmin,
                             DEFAULT_NON_COMPRESSED_CHART_QRYCNT,
                             COMPRESSED_NO,
-                            today.minusDays(7).format(DATE_FMT),
+                            sdate.format(DATE_FMT),
                             "",
                             ctsDate,
                             ctsTime
