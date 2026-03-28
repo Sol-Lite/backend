@@ -1,6 +1,7 @@
 package com.sollite.market.controller;
 
 import com.sollite.market.dto.*;
+import com.sollite.market.service.ForexService;
 import com.sollite.market.service.InstrumentService;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ import java.util.List;
 public class MarketController {
     private final MarketService marketService;
     private final InstrumentService instrumentService;
+    private final ForexService forexService;
 
     @GetMapping("/stocks/{stockCode}/price")
     public ResponseEntity<CurrentPriceResponse>
@@ -118,5 +120,13 @@ public class MarketController {
             @RequestParam(defaultValue = "1") int ncnt,
             @RequestParam(defaultValue = "500") int count) {
         return ResponseEntity.ok(marketService.getIndexMinuteChart(indexCode, ncnt, count));
+    }
+
+    @GetMapping("/forex/chart")
+    public ResponseEntity<ForexChartResponse> getForexChart(
+            @RequestParam String symbol,
+            @RequestParam(defaultValue = "5m") String interval,
+            @RequestParam(defaultValue = "1d") String range) {
+        return ResponseEntity.ok(forexService.getForexChart(symbol, interval, range));
     }
 }
