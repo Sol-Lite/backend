@@ -4,6 +4,8 @@ import com.sollite.market.dto.CurrentPriceResponse;
 import com.sollite.market.dto.DailyPriceResponse;
 import com.sollite.market.dto.ChartPeriod;
 import com.sollite.market.dto.ChartResponse;
+import com.sollite.market.dto.IndexChartResponse;
+import com.sollite.market.dto.IndexMinuteChartResponse;
 import com.sollite.market.dto.MinuteChartResponse;
 import com.sollite.market.dto.FinanceResponse;
 import com.sollite.market.dto.OpinionResponse;
@@ -30,4 +32,6 @@ public interface MarketService {
     OrderbookResponse getOrderbook(String stockCode);
     List<StockRankingItem> getRanking(String type, String market);
     StockInfoResponse getStockInfo(String stockCode);
+    IndexChartResponse getIndexChart(String indexCode, int count);
+    IndexMinuteChartResponse getIndexMinuteChart(String indexCode, int ncnt, int count);
 }

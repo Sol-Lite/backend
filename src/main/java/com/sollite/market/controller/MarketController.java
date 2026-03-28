@@ -104,4 +104,19 @@ public class MarketController {
     public ResponseEntity<StockInfoResponse> getStockInfo(@PathVariable String stockCode) {
         return ResponseEntity.ok(marketService.getStockInfo(stockCode));
     }
+
+    @GetMapping("/indices/{indexCode}/chart")
+    public ResponseEntity<IndexChartResponse> getIndexChart(
+            @PathVariable String indexCode,
+            @RequestParam(defaultValue = "90") int count) {
+        return ResponseEntity.ok(marketService.getIndexChart(indexCode, count));
+    }
+
+    @GetMapping("/indices/{indexCode}/minute-chart")
+    public ResponseEntity<IndexMinuteChartResponse> getIndexMinuteChart(
+            @PathVariable String indexCode,
+            @RequestParam(defaultValue = "1") int ncnt,
+            @RequestParam(defaultValue = "500") int count) {
+        return ResponseEntity.ok(marketService.getIndexMinuteChart(indexCode, ncnt, count));
+    }
 }
