@@ -102,7 +102,7 @@ public class ForexService {
     }
 
     private BigDecimal toBD(JsonNode node) {
-        if (node == null || node.isNull()) return null;
-        return BigDecimal.valueOf(node.asDouble()).setScale(4, RoundingMode.HALF_UP);
+        if (node == null || node.isNull() || !node.isNumber()) return null;
+        return new BigDecimal(node.asText()).setScale(4, RoundingMode.HALF_UP);
     }
 }

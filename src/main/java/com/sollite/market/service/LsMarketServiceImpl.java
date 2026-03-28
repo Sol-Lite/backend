@@ -1641,6 +1641,8 @@ class LsMarketServiceImpl implements MarketService {
                     lsRes.t8419OutBlock1() != null ? lsRes.t8419OutBlock1() : List.of();
 
             List<IndexChartResponse.IndexChartDataPoint> dataPoints = rawList.stream()
+                    .filter(item -> item.date() != null && !item.date().isBlank()
+                            && item.open() != null && !item.open().isBlank())
                     .map(item -> new IndexChartResponse.IndexChartDataPoint(
                             LocalDate.parse(item.date(), fmt),
                             new java.math.BigDecimal(item.open()),
@@ -1715,6 +1717,9 @@ class LsMarketServiceImpl implements MarketService {
                     lsRes.t8418OutBlock1() != null ? lsRes.t8418OutBlock1() : List.of();
 
             List<IndexMinuteChartResponse.IndexMinuteChartDataPoint> dataPoints = rawList.stream()
+                    .filter(item -> item.date() != null && !item.date().isBlank()
+                            && item.time() != null && !item.time().isBlank()
+                            && item.open() != null && !item.open().isBlank())
                     .map(item -> new IndexMinuteChartResponse.IndexMinuteChartDataPoint(
                             LocalDateTime.of(
                                     LocalDate.parse(item.date(), dateFmt),
@@ -1782,7 +1787,8 @@ class LsMarketServiceImpl implements MarketService {
 
             java.math.BigDecimal scale = new java.math.BigDecimal("100");
             List<IndexChartResponse.IndexChartDataPoint> dataPoints = rawList.stream()
-                    .filter(item -> item.date() != null && !item.date().isBlank())
+                    .filter(item -> item.date() != null && !item.date().isBlank()
+                            && item.open() != null && !item.open().isBlank())
                     .map(item -> new IndexChartResponse.IndexChartDataPoint(
                             LocalDate.parse(item.date(), fmt),
                             new java.math.BigDecimal(item.open()).multiply(scale),
@@ -1849,7 +1855,8 @@ class LsMarketServiceImpl implements MarketService {
             java.math.BigDecimal scale = new java.math.BigDecimal("100");
             List<IndexMinuteChartResponse.IndexMinuteChartDataPoint> dataPoints = rawList.stream()
                     .filter(item -> item.date() != null && !item.date().isBlank()
-                            && item.time() != null && !item.time().isBlank())
+                            && item.time() != null && !item.time().isBlank()
+                            && item.open() != null && !item.open().isBlank())
                     .map(item -> {
                         String timeStr = item.time().length() >= 6 ? item.time().substring(0, 6) : item.time();
                         return new IndexMinuteChartResponse.IndexMinuteChartDataPoint(

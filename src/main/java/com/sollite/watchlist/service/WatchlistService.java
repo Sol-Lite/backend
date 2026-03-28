@@ -50,6 +50,7 @@ public class WatchlistService {
     private final NotificationSettingRepository notificationSettingRepository;
     private final ActivePriceAlertRegistry activePriceAlertRegistry;
 
+    @Transactional(readOnly = true)
     public List<WatchlistItemResponse> getWatchlist(Long userId) {
         return watchlistItemRepository.findByUserIdOrderByDisplayOrderAsc(userId)
                 .stream()
