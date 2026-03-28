@@ -20,11 +20,11 @@ public record ForeignChartResponse(
             double close,
             long volume
     ) {
-        private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+        private static final ZoneId NY = ZoneId.of("America/New_York");
 
         @JsonProperty("time")
         public long time() {
-            return date.atStartOfDay(KST).toInstant().toEpochMilli();
+            return date.atStartOfDay(NY).toInstant().toEpochMilli();
         }
     }
 }
