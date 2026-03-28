@@ -7,9 +7,11 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 @Slf4j
 @RestControllerAdvice
@@ -30,6 +32,14 @@ public class GlobalExceptionHandler {
         Map<String, String> errors = new HashMap<>();
         errors.put(e.getParameterName(), "필수 파라미터입니다");
 
+        ErrorResponse response = ErrorResponse.of(GlobalErrorCode.INVALID_INPUT, errors);
+        return ResponseEntity.status(response.status()).body(response);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put(e.getName(), "올바르지 않은 값입니다: " + Objects.toString(e.getValue(), "null"));
         ErrorResponse response = ErrorResponse.of(GlobalErrorCode.INVALID_INPUT, errors);
         return ResponseEntity.status(response.status()).body(response);
     }

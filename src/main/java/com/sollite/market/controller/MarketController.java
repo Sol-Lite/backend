@@ -1,5 +1,8 @@
 package com.sollite.market.controller;
 
+import com.sollite.global.exception.BusinessException;
+import com.sollite.global.exception.GlobalErrorCode;
+import com.sollite.market.domain.enums.StockTheme;
 import com.sollite.market.dto.*;
 import com.sollite.market.service.ForexService;
 import com.sollite.market.service.InstrumentService;
@@ -11,12 +14,17 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/market")
 @RequiredArgsConstructor
 public class MarketController {
+
+    private static final Set<String> ALLOWED_RANKING_TYPES =
+            Set.of("trading-value", "trading-volume", "rising", "falling", "market-cap");
     private final MarketService marketService;
     private final InstrumentService instrumentService;
     private final ForexService forexService;
@@ -100,6 +108,25 @@ public class MarketController {
             @RequestParam(defaultValue = "trading-value") String type,
             @RequestParam(defaultValue = "all") String market) {
         return ResponseEntity.ok(marketService.getRanking(type, market));
+    }
+
+    @GetMapping("/stocks/themes")
+    public ResponseEntity<List<StockThemeResponse>> getThemes() {
+        return ResponseEntity.ok(
+                Arrays.stream(StockTheme.values())
+                        .map(StockThemeResponse::from)
+                        .toList()
+        );
+    }
+
+    @GetMapping("/stocks/themes/{theme}/ranking")
+    public ResponseEntity<List<StockRankingItem>> getThemeRanking(
+            @PathVariable StockTheme theme,
+            @RequestParam(defaultValue = "trading-value") String type) {
+        if (!ALLOWED_RANKING_TYPES.contains(type)) {
+            throw new BusinessException(GlobalErrorCode.INVALID_INPUT);
+        }
+        return ResponseEntity.ok(marketService.getThemeRanking(theme, type));
     }
 
     @GetMapping("/stocks/{stockCode}/info")

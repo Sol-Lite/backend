@@ -5,7 +5,9 @@ import com.sollite.global.exception.BusinessException;
 import com.sollite.global.service.LsTokenService;
 import com.sollite.market.domain.entity.MarketDailyCandle;
 import com.sollite.market.domain.entity.MarketMinuteCandle;
+import com.sollite.market.domain.enums.StockTheme;
 import com.sollite.market.domain.repository.InstrumentRepository;
+import com.sollite.market.domain.repository.InstrumentThemeMappingRepository;
 import com.sollite.market.domain.repository.MarketDailyCandleRepository;
 import com.sollite.market.domain.repository.MarketMinuteCandleRepository;
 import com.sollite.market.dto.*;
@@ -14,6 +16,7 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationContext;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -29,6 +32,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.stream.IntStream;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,6 +61,8 @@ class LsMarketServiceImpl implements MarketService {
     private final ObjectMapper objectMapper;
     private final Kospi200TargetService kospi200TargetService;
     private final InstrumentRepository instrumentRepository;
+    private final InstrumentThemeMappingRepository instrumentThemeMappingRepository;
+    private final ApplicationContext applicationContext;
     private final MarketDailyCandleRepository marketDailyCandleRepository;
     private final MarketMinuteCandleRepository marketMinuteCandleRepository;
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
@@ -70,7 +76,6 @@ class LsMarketServiceImpl implements MarketService {
         return thread;
     });
     private Clock clock = Clock.systemDefaultZone();
-
     @PreDestroy
     void destroy() {
         minuteGapRefreshExecutor.shutdownNow();
@@ -1203,6 +1208,33 @@ class LsMarketServiceImpl implements MarketService {
             throw e;
         } catch (Exception e) {
             log.error("순위 조회 중 예외 발생: type={}, market={}", type, market, e);
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+    }
+
+    @Override
+    @Cacheable(cacheNames = "market:ranking", key = "'theme:' + #theme.name() + ':' + #type", sync = true)
+    public List<StockRankingItem> getThemeRanking(StockTheme theme, String type) {
+        try {
+            Set<String> themeCodes = instrumentThemeMappingRepository.findStockCodesByTheme(theme);
+            if (themeCodes.isEmpty()) {
+                return List.of();
+            }
+
+            // @Cacheable 프록시를 통하기 위해 ApplicationContext에서 빈을 직접 조회
+            List<StockRankingItem> allRanking = applicationContext.getBean(MarketService.class).getRanking(type, "all");
+
+            List<StockRankingItem> filtered = allRanking.stream()
+                    .filter(item -> item.stockCode() != null && themeCodes.contains(item.stockCode()))
+                    .toList();
+
+            return IntStream.range(0, filtered.size())
+                    .mapToObj(i -> filtered.get(i).withRank(i + 1))
+                    .toList();
+        } catch (BusinessException e) {
+            throw e;  // catch (Exception e) 블록에서 MARKET_API_ERROR로 덮어씌워지는 것을 방지
+        } catch (Exception e) {
+            log.error("테마 순위 조회 중 예외 발생: theme={}, type={}", theme, type, e);
             throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
         }
     }
