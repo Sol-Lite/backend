@@ -1,5 +1,6 @@
 package com.sollite.market.controller;
 
+import com.sollite.market.domain.enums.StockTheme;
 import com.sollite.market.dto.*;
 import com.sollite.market.service.InstrumentService;
 import com.sollite.market.service.MarketService;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 
 @RestController
@@ -98,6 +100,22 @@ public class MarketController {
             @RequestParam(defaultValue = "trading-value") String type,
             @RequestParam(defaultValue = "all") String market) {
         return ResponseEntity.ok(marketService.getRanking(type, market));
+    }
+
+    @GetMapping("/stocks/themes")
+    public ResponseEntity<List<StockThemeResponse>> getThemes() {
+        return ResponseEntity.ok(
+                Arrays.stream(StockTheme.values())
+                        .map(StockThemeResponse::from)
+                        .toList()
+        );
+    }
+
+    @GetMapping("/stocks/themes/{theme}/ranking")
+    public ResponseEntity<List<StockRankingItem>> getThemeRanking(
+            @PathVariable StockTheme theme,
+            @RequestParam(defaultValue = "trading-value") String type) {
+        return ResponseEntity.ok(marketService.getThemeRanking(theme, type));
     }
 
     @GetMapping("/stocks/{stockCode}/info")

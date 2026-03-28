@@ -5,7 +5,9 @@ import com.sollite.global.exception.BusinessException;
 import com.sollite.global.service.LsTokenService;
 import com.sollite.market.domain.entity.MarketDailyCandle;
 import com.sollite.market.domain.entity.MarketMinuteCandle;
+import com.sollite.market.domain.enums.StockTheme;
 import com.sollite.market.domain.repository.InstrumentRepository;
+import com.sollite.market.domain.repository.InstrumentThemeMappingRepository;
 import com.sollite.market.domain.repository.MarketDailyCandleRepository;
 import com.sollite.market.domain.repository.MarketMinuteCandleRepository;
 import com.sollite.market.dto.*;
@@ -13,7 +15,9 @@ import com.sollite.market.exception.MarketErrorCode;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -57,6 +61,7 @@ class LsMarketServiceImpl implements MarketService {
     private final ObjectMapper objectMapper;
     private final Kospi200TargetService kospi200TargetService;
     private final InstrumentRepository instrumentRepository;
+    private final InstrumentThemeMappingRepository instrumentThemeMappingRepository;
     private final MarketDailyCandleRepository marketDailyCandleRepository;
     private final MarketMinuteCandleRepository marketMinuteCandleRepository;
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
@@ -70,6 +75,7 @@ class LsMarketServiceImpl implements MarketService {
         return thread;
     });
     private Clock clock = Clock.systemDefaultZone();
+    @Lazy @Autowired private MarketService self;
 
     @PreDestroy
     void destroy() {
@@ -1203,6 +1209,30 @@ class LsMarketServiceImpl implements MarketService {
             throw e;
         } catch (Exception e) {
             log.error("순위 조회 중 예외 발생: type={}, market={}", type, market, e);
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+    }
+
+    @Override
+    @Cacheable(cacheNames = "market:ranking", key = "'theme:' + #theme.name() + ':' + #type", sync = true)
+    public List<StockRankingItem> getThemeRanking(StockTheme theme, String type) {
+        try {
+            Set<String> themeCodes = instrumentThemeMappingRepository.findStockCodesByTheme(theme);
+            if (themeCodes.isEmpty()) {
+                return List.of();
+            }
+
+            List<StockRankingItem> allRanking = self.getRanking(type, "all");
+
+            AtomicInteger rank = new AtomicInteger(1);
+            return allRanking.stream()
+                    .filter(item -> item.stockCode() != null && themeCodes.contains(item.stockCode()))
+                    .map(item -> item.withRank(rank.getAndIncrement()))
+                    .toList();
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("테마 순위 조회 중 예외 발생: theme={}, type={}", theme, type, e);
             throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
         }
     }
