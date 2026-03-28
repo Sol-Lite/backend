@@ -32,6 +32,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.stream.IntStream;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -1223,10 +1224,12 @@ class LsMarketServiceImpl implements MarketService {
             // @Cacheable 프록시를 통하기 위해 ApplicationContext에서 빈을 직접 조회
             List<StockRankingItem> allRanking = applicationContext.getBean(MarketService.class).getRanking(type, "all");
 
-            AtomicInteger rank = new AtomicInteger(1);
-            return allRanking.stream()
+            List<StockRankingItem> filtered = allRanking.stream()
                     .filter(item -> item.stockCode() != null && themeCodes.contains(item.stockCode()))
-                    .map(item -> item.withRank(rank.getAndIncrement()))
+                    .toList();
+
+            return IntStream.range(0, filtered.size())
+                    .mapToObj(i -> filtered.get(i).withRank(i + 1))
                     .toList();
         } catch (BusinessException e) {
             throw e;
