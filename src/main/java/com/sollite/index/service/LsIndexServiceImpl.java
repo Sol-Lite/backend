@@ -47,7 +47,8 @@ class LsIndexServiceImpl implements IndexService {
     );
 
     @Override
-    @Cacheable(cacheNames = "market:indices", key = "'fixed'", sync = true)
+    @Cacheable(cacheNames = "market:indices", key = "'fixed'", sync = true,
+            unless = "#result.?[code == 'USD' && price == null].size() > 0")
     public List<IndexResponse> getIndices() {
         List<IndexResponse> result = new ArrayList<>();
         for (IndexMeta meta : INDICES) {
