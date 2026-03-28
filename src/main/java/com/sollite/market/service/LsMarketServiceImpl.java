@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
@@ -1640,11 +1641,12 @@ class LsMarketServiceImpl implements MarketService {
             List<LsIndexChartRes.LsIndexChartItem> rawList =
                     lsRes.t8419OutBlock1() != null ? lsRes.t8419OutBlock1() : List.of();
 
+            ZoneId zone = ZoneId.of("Asia/Seoul");
             List<IndexChartResponse.IndexChartDataPoint> dataPoints = rawList.stream()
                     .filter(item -> item.date() != null && !item.date().isBlank()
                             && item.open() != null && !item.open().isBlank())
                     .map(item -> new IndexChartResponse.IndexChartDataPoint(
-                            LocalDate.parse(item.date(), fmt),
+                            LocalDate.parse(item.date(), fmt).atStartOfDay(zone).toInstant().toEpochMilli(),
                             new java.math.BigDecimal(item.open()),
                             new java.math.BigDecimal(item.high()),
                             new java.math.BigDecimal(item.low()),
@@ -1716,6 +1718,7 @@ class LsMarketServiceImpl implements MarketService {
             List<LsIndexMinuteChartRes.LsIndexMinuteChartItem> rawList =
                     lsRes.t8418OutBlock1() != null ? lsRes.t8418OutBlock1() : List.of();
 
+            ZoneId zone = ZoneId.of("Asia/Seoul");
             List<IndexMinuteChartResponse.IndexMinuteChartDataPoint> dataPoints = rawList.stream()
                     .filter(item -> item.date() != null && !item.date().isBlank()
                             && item.time() != null && !item.time().isBlank()
@@ -1724,7 +1727,7 @@ class LsMarketServiceImpl implements MarketService {
                             LocalDateTime.of(
                                     LocalDate.parse(item.date(), dateFmt),
                                     java.time.LocalTime.parse(item.time(), timeFmt)
-                            ),
+                            ).atZone(zone).toInstant().toEpochMilli(),
                             new java.math.BigDecimal(item.open()),
                             new java.math.BigDecimal(item.high()),
                             new java.math.BigDecimal(item.low()),
@@ -1785,12 +1788,13 @@ class LsMarketServiceImpl implements MarketService {
             List<LsOverseasIndexChartRes.LsOverseasIndexChartItem> rawList =
                     lsRes.t3518OutBlock1() != null ? lsRes.t3518OutBlock1() : List.of();
 
+            ZoneId zone = ZoneId.of("America/New_York");
             java.math.BigDecimal scale = new java.math.BigDecimal("100");
             List<IndexChartResponse.IndexChartDataPoint> dataPoints = rawList.stream()
                     .filter(item -> item.date() != null && !item.date().isBlank()
                             && item.open() != null && !item.open().isBlank())
                     .map(item -> new IndexChartResponse.IndexChartDataPoint(
-                            LocalDate.parse(item.date(), fmt),
+                            LocalDate.parse(item.date(), fmt).atStartOfDay(zone).toInstant().toEpochMilli(),
                             new java.math.BigDecimal(item.open()).multiply(scale),
                             new java.math.BigDecimal(item.high()).multiply(scale),
                             new java.math.BigDecimal(item.low()).multiply(scale),
@@ -1852,6 +1856,7 @@ class LsMarketServiceImpl implements MarketService {
             List<LsOverseasIndexChartRes.LsOverseasIndexChartItem> rawList =
                     lsRes.t3518OutBlock1() != null ? lsRes.t3518OutBlock1() : List.of();
 
+            ZoneId zone = ZoneId.of("America/New_York");
             java.math.BigDecimal scale = new java.math.BigDecimal("100");
             List<IndexMinuteChartResponse.IndexMinuteChartDataPoint> dataPoints = rawList.stream()
                     .filter(item -> item.date() != null && !item.date().isBlank()
@@ -1863,7 +1868,7 @@ class LsMarketServiceImpl implements MarketService {
                                 LocalDateTime.of(
                                         LocalDate.parse(item.date(), dateFmt),
                                         java.time.LocalTime.parse(timeStr, DateTimeFormatter.ofPattern("HHmmss"))
-                                ),
+                                ).atZone(zone).toInstant().toEpochMilli(),
                                 new java.math.BigDecimal(item.open()).multiply(scale),
                                 new java.math.BigDecimal(item.high()).multiply(scale),
                                 new java.math.BigDecimal(item.low()).multiply(scale),
