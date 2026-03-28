@@ -56,4 +56,31 @@ public record StockRankingItem(
                 prevDiff
         );
     }
+
+    public StockRankingItem withRank(int rank) {
+        return new StockRankingItem(
+                rank,
+                stockCode,
+                marketType,
+                name,
+                price,
+                sign,
+                change,
+                changeRate,
+                volume,
+                tradingValue,
+                marketCap,
+                buyRatio,
+                exShcode,
+                consecutiveDays,
+                offerPrice,
+                bidPrice,
+                volumeChangeRate,
+                marketShareRate,
+                tradingShareRate,
+                prevVolume,
+                prevTradingValue,
+                prevDiff
+        );
+    }
 }

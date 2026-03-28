@@ -14,5 +14,4 @@ public record StompPrincipal(String name) implements Principal {
         return name;
     }
 }
-}
 
