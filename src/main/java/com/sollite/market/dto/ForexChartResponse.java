@@ -1,7 +1,11 @@
 package com.sollite.market.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 public record ForexChartResponse(
@@ -11,10 +15,17 @@ public record ForexChartResponse(
         List<Candle> data
 ) {
     public record Candle(
-            LocalDateTime time,
+            @JsonIgnore LocalDateTime time,
             BigDecimal open,
             BigDecimal high,
             BigDecimal low,
             BigDecimal close
-    ) {}
+    ) {
+        private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
+        @JsonProperty("time")
+        public long epochMs() {
+            return time.atZone(KST).toInstant().toEpochMilli();
+        }
+    }
 }
