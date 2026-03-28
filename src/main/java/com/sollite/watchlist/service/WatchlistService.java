@@ -1,6 +1,8 @@
 package com.sollite.watchlist.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sollite.foreignmarket.dto.ForeignCurrentPriceResponse;
+import com.sollite.foreignmarket.service.ForeignStockMarketService;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.market.domain.entity.Instrument;
 import com.sollite.market.domain.repository.InstrumentRepository;
@@ -27,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -35,10 +38,12 @@ import java.util.List;
 public class WatchlistService {
 
     private static final int WATCHLIST_MAX_SIZE = 50;
+    private static final Set<String> FOREIGN_MARKET_TYPES = Set.of("NASDAQ", "NYSE", "AMEX");
 
     private final WatchlistItemRepository watchlistItemRepository;
     private final InstrumentRepository instrumentRepository;
     private final MarketService marketService;
+    private final ForeignStockMarketService foreignStockMarketService;
     private final LsBrokerService lsBrokerService;
     private final ObjectMapper objectMapper;
     private final PriceAlertRepository priceAlertRepository;
@@ -50,39 +55,50 @@ public class WatchlistService {
                 .stream()
                 .map(item -> {
                     Instrument inst = item.getInstrument();
-                    CurrentPriceResponse price = resolveCurrentPrice(inst.getStockCode());
-                    return new WatchlistItemResponse(
-                            inst.getStockCode(),
-                            inst.getStockName(),
-                            price.currentPrice(),
-                            price.changeRate(),
-                            price.changeAmount(),
-                            price.volume()
-                    );
+                    return resolveWatchlistItem(inst);
                 })
                 .toList();
     }
 
-    private CurrentPriceResponse resolveCurrentPrice(String stockCode) {
-        String topic = "/topic/stock/trade/" + stockCode;
+    private WatchlistItemResponse resolveWatchlistItem(Instrument inst) {
+        String stockCode  = inst.getStockCode();
+        String marketType = inst.getMarketType();
+        String exchcd     = inst.getExchangeCode();
+        boolean isForeign = FOREIGN_MARKET_TYPES.contains(marketType);
+
+        String topic = isForeign
+                ? "/topic/foreign/transaction/" + stockCode
+                : "/topic/stock/trade/" + stockCode;
+
         String lastJson = lsBrokerService.getLastValue(topic);
         if (lastJson != null) {
             try {
                 var node = objectMapper.readTree(lastJson);
                 if (node.has("price")) {
-                    return new CurrentPriceResponse(
-                            stockCode,
-                            Integer.parseInt(node.get("price").asText().replace(",", "").trim()),
-                            node.has("diff") ? Double.parseDouble(node.get("diff").asText().replace(",", "").trim()) : 0.0,
-                            node.has("change") ? Integer.parseInt(node.get("change").asText().replace(",", "").trim()) : 0,
-                            node.has("volume") ? Long.parseLong(node.get("volume").asText().replace(",", "").trim()) : 0L
-                    );
+                    double price      = Double.parseDouble(node.get("price").asText().replace(",", "").trim());
+                    double changeRate = node.has("rate") ? Double.parseDouble(node.get("rate").asText().replace(",", "").trim())
+                                     : node.has("diff") ? Double.parseDouble(node.get("diff").asText().replace(",", "").trim()) : 0.0;
+                    double changeAmt  = node.has("change") ? Double.parseDouble(node.get("change").asText().replace(",", "").trim()) : 0.0;
+                    long   volume     = node.has("volume") ? Long.parseLong(node.get("volume").asText().replace(",", "").trim()) : 0L;
+                    return new WatchlistItemResponse(stockCode, inst.getStockName(), price, changeRate, changeAmt, volume, marketType, exchcd);
                 }
             } catch (Exception e) {
                 log.warn("[WATCHLIST] lastValue 파싱 실패 — topic={}, error={}", topic, e.getMessage());
             }
         }
-        return marketService.getCurrentPrice(stockCode);
+
+        if (isForeign) {
+            try {
+                ForeignCurrentPriceResponse fp = foreignStockMarketService.getCurrentPrice(stockCode, exchcd);
+                return new WatchlistItemResponse(stockCode, inst.getStockName(), fp.price(), fp.rate(), fp.diff(), fp.volume(), marketType, exchcd);
+            } catch (Exception e) {
+                log.warn("[WATCHLIST] 해외주식 현재가 조회 실패 — stockCode={}, error={}", stockCode, e.getMessage());
+                return new WatchlistItemResponse(stockCode, inst.getStockName(), 0, 0.0, 0.0, 0L, marketType, exchcd);
+            }
+        }
+
+        CurrentPriceResponse price = marketService.getCurrentPrice(stockCode);
+        return new WatchlistItemResponse(stockCode, inst.getStockName(), price.currentPrice(), price.changeRate(), price.changeAmount(), price.volume(), marketType, exchcd);
     }
 
     @Transactional
