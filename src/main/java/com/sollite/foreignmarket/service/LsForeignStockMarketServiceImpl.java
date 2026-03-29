@@ -18,6 +18,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -400,9 +401,10 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
 
             List<LsG3103Res.G3103OutBlock1> rawList = lsRes.g3103OutBlock1() != null ? lsRes.g3103OutBlock1() : List.of();
 
+            ZoneId ny = ZoneId.of("America/New_York");
             List<ForeignChartResponse.ChartDataPoint> dataPoints = rawList.stream()
                     .map(item -> new ForeignChartResponse.ChartDataPoint(
-                            LocalDate.parse(item.chedate(), fmt),
+                            LocalDate.parse(item.chedate(), fmt).atStartOfDay(ny).toInstant().toEpochMilli(),
                             parseDouble(item.open()),
                             parseDouble(item.high()),
                             parseDouble(item.low()),
@@ -485,21 +487,19 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
 
             List<LsG3202Res.G3202OutBlock1> rawList = lsRes.g3202OutBlock1() != null ? lsRes.g3202OutBlock1() : List.of();
 
+            ZoneId ny = ZoneId.of("America/New_York");
             List<ForeignTickChartResponse.TickDataPoint> dataPoints = rawList.stream()
-                    .map(item -> {
-                        LocalDateTime dateTime = LocalDateTime.of(
-                                LocalDate.parse(item.date(), fmt),
-                                java.time.LocalTime.parse(item.loctime(), TIME_FMT)
-                        );
-                        return new ForeignTickChartResponse.TickDataPoint(
-                                dateTime,
-                                parseDouble(item.open()),
-                                parseDouble(item.high()),
-                                parseDouble(item.low()),
-                                parseDouble(item.close()),
-                                parseLong(item.exevol())
-                        );
-                    })
+                    .map(item -> new ForeignTickChartResponse.TickDataPoint(
+                            LocalDateTime.of(
+                                    LocalDate.parse(item.date(), fmt),
+                                    java.time.LocalTime.parse(item.loctime(), TIME_FMT)
+                            ).atZone(ny).toInstant().toEpochMilli(),
+                            parseDouble(item.open()),
+                            parseDouble(item.high()),
+                            parseDouble(item.low()),
+                            parseDouble(item.close()),
+                            parseLong(item.exevol())
+                    ))
                     .toList();
 
             return new ForeignTickChartResponse(stockCode, ncnt, dataPoints);
@@ -544,22 +544,20 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
                     nmin
             );
 
+            ZoneId ny = ZoneId.of("America/New_York");
             List<ForeignMinuteChartResponse.MinuteChartDataPoint> dataPoints = rawList.stream()
-                    .map(item -> {
-                        LocalDateTime dateTime = LocalDateTime.of(
-                                LocalDate.parse(item.date(), DATE_FMT),
-                                java.time.LocalTime.parse(item.loctime(), TIME_FMT)
-                        );
-                        return new ForeignMinuteChartResponse.MinuteChartDataPoint(
-                                dateTime,
-                                parseDouble(item.open()),
-                                parseDouble(item.high()),
-                                parseDouble(item.low()),
-                                parseDouble(item.close()),
-                                parseLong(item.exevol()),
-                                parseLong(item.amount())
-                        );
-                    })
+                    .map(item -> new ForeignMinuteChartResponse.MinuteChartDataPoint(
+                            LocalDateTime.of(
+                                    LocalDate.parse(item.date(), DATE_FMT),
+                                    java.time.LocalTime.parse(item.loctime(), TIME_FMT)
+                            ).atZone(ny).toInstant().toEpochMilli(),
+                            parseDouble(item.open()),
+                            parseDouble(item.high()),
+                            parseDouble(item.low()),
+                            parseDouble(item.close()),
+                            parseLong(item.exevol()),
+                            parseLong(item.amount())
+                    ))
                     .toList();
 
             return new ForeignMinuteChartResponse(stockCode, nmin, dataPoints);
@@ -808,9 +806,10 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
 
             List<LsG3204Res.G3204OutBlock1> rawList = lsRes.g3204OutBlock1() != null ? lsRes.g3204OutBlock1() : List.of();
 
+            ZoneId ny = ZoneId.of("America/New_York");
             List<ForeignChartResponse.ChartDataPoint> dataPoints = rawList.stream()
                     .map(item -> new ForeignChartResponse.ChartDataPoint(
-                            LocalDate.parse(item.date(), fmt),
+                            LocalDate.parse(item.date(), fmt).atStartOfDay(ny).toInstant().toEpochMilli(),
                             parseDouble(item.open()),
                             parseDouble(item.high()),
                             parseDouble(item.low()),

@@ -1,6 +1,5 @@
 package com.sollite.foreignmarket.dto;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 public record ForeignMinuteChartResponse(
@@ -9,7 +8,7 @@ public record ForeignMinuteChartResponse(
         List<MinuteChartDataPoint> dataPoints
 ) {
     public record MinuteChartDataPoint(
-            LocalDateTime dateTime,
+            long time,
             double open,
             double high,
             double low,

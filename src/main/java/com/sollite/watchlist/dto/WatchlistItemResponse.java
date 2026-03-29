@@ -3,9 +3,11 @@ package com.sollite.watchlist.dto;
 public record WatchlistItemResponse(
         String stockCode,
         String stockName,
-        int currentPrice,
+        double currentPrice,
         double changeRate,
-        int changeAmount,
-        long volume
+        double changeAmount,
+        long volume,
+        String marketType,
+        String exchangeCode
 ) {
 }

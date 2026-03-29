@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
@@ -1592,6 +1593,306 @@ class LsMarketServiceImpl implements MarketService {
             throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
         } catch (Exception e) {
             log.error("기업 정보 조회 실패: stockCode={}, error={}", stockCode, e.getMessage());
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+    }
+
+    @Override
+    public IndexChartResponse getIndexChart(String indexCode, int count) {
+        if (indexCode.contains("@")) {
+            return getOverseasIndexChartFromLs(indexCode, count, false);
+        }
+        return getIndexChartFromLs(indexCode, count, false);
+    }
+
+    private IndexChartResponse getIndexChartFromLs(String indexCode, int count, boolean isRetry) {
+        String token = tokenService.getAccessToken();
+        try {
+            record LsReqBody(String shcode, String gubun, int qrycnt, String sdate, String edate,
+                             String cts_date, String comp_yn) {}
+            record LsReq(LsReqBody t8419InBlock) {}
+
+            int qrycnt = Math.min(count, 500);
+
+            String raw = lsWebClient.post()
+                    .uri("/indtp/chart")
+                    .header("authorization", "Bearer " + token)
+                    .header("content-type", "application/json; charset=utf-8")
+                    .header("tr_cd", "t8419")
+                    .header("tr_cont", "N")
+                    .header("mac_address", DUMMY_MAC)
+                    .bodyValue(new LsReq(new LsReqBody(
+                            indexCode, "2", qrycnt, " ", "99999999", " ", "N"
+                    )))
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            log.debug("LS t8419 index chart raw: {}", raw);
+            LsIndexChartRes lsRes = objectMapper.readValue(raw, LsIndexChartRes.class);
+
+            if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                log.warn("LS API 업종 차트 조회 실패: indexCode={}, msg={}", indexCode,
+                        lsRes != null ? lsRes.rsp_msg() : "NULL");
+                throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+            }
+
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyyMMdd");
+            List<LsIndexChartRes.LsIndexChartItem> rawList =
+                    lsRes.t8419OutBlock1() != null ? lsRes.t8419OutBlock1() : List.of();
+
+            ZoneId zone = ZoneId.of("Asia/Seoul");
+            List<IndexChartResponse.IndexChartDataPoint> dataPoints = rawList.stream()
+                    .filter(item -> item.date() != null && !item.date().isBlank()
+                            && item.open() != null && !item.open().isBlank())
+                    .map(item -> new IndexChartResponse.IndexChartDataPoint(
+                            LocalDate.parse(item.date(), fmt).atStartOfDay(zone).toInstant().toEpochMilli(),
+                            new java.math.BigDecimal(item.open()),
+                            new java.math.BigDecimal(item.high()),
+                            new java.math.BigDecimal(item.low()),
+                            new java.math.BigDecimal(item.close()),
+                            item.jdiff_vol()
+                    ))
+                    .toList();
+
+            return new IndexChartResponse(indexCode, dataPoints);
+
+        } catch (BusinessException e) {
+            throw e;
+        } catch (WebClientResponseException e) {
+            if (!isRetry && e.getStatusCode().value() == 401) {
+                log.warn("토큰 만료 감지 (401), 재발급 후 재시도: indexCode={}", indexCode);
+                tokenService.invalidateToken();
+                return getIndexChartFromLs(indexCode, count, true);
+            }
+            log.error("LS증권 업종 차트 API 호출 실패. HTTP 상태: {}, 응답: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        } catch (Exception e) {
+            log.error("업종 차트 조회 중 예외 발생: indexCode={}", indexCode, e);
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+    }
+
+    @Override
+    public IndexMinuteChartResponse getIndexMinuteChart(String indexCode, int ncnt, int count) {
+        if (indexCode.contains("@")) {
+            return getOverseasIndexMinuteChartFromLs(indexCode, ncnt, count, false);
+        }
+        return getIndexMinuteChartFromLs(indexCode, ncnt, count, false);
+    }
+
+    private IndexMinuteChartResponse getIndexMinuteChartFromLs(String indexCode, int ncnt, int count, boolean isRetry) {
+        String token = tokenService.getAccessToken();
+        try {
+            record LsReqBody(String shcode, int ncnt, int qrycnt, String nday, String sdate, String stime,
+                             String edate, String etime, String cts_date, String cts_time, String comp_yn) {}
+            record LsReq(LsReqBody t8418InBlock) {}
+
+            int qrycnt = Math.min(count, 500);
+
+            String raw = lsWebClient.post()
+                    .uri("/indtp/chart")
+                    .header("authorization", "Bearer " + token)
+                    .header("content-type", "application/json; charset=utf-8")
+                    .header("tr_cd", "t8418")
+                    .header("tr_cont", "N")
+                    .header("mac_address", DUMMY_MAC)
+                    .bodyValue(new LsReq(new LsReqBody(
+                            indexCode, ncnt, qrycnt, "0", " ", "", "99999999", "", " ", "", "N"
+                    )))
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            log.debug("LS t8418 index minute chart raw: {}", raw);
+            LsIndexMinuteChartRes lsRes = objectMapper.readValue(raw, LsIndexMinuteChartRes.class);
+
+            if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                log.warn("LS API 업종 분봉 조회 실패: indexCode={}, msg={}", indexCode,
+                        lsRes != null ? lsRes.rsp_msg() : "NULL");
+                throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+            }
+
+            DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("yyyyMMdd");
+            DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HHmmss");
+            List<LsIndexMinuteChartRes.LsIndexMinuteChartItem> rawList =
+                    lsRes.t8418OutBlock1() != null ? lsRes.t8418OutBlock1() : List.of();
+
+            ZoneId zone = ZoneId.of("Asia/Seoul");
+            List<IndexMinuteChartResponse.IndexMinuteChartDataPoint> dataPoints = rawList.stream()
+                    .filter(item -> item.date() != null && !item.date().isBlank()
+                            && item.time() != null && !item.time().isBlank()
+                            && item.open() != null && !item.open().isBlank())
+                    .map(item -> new IndexMinuteChartResponse.IndexMinuteChartDataPoint(
+                            LocalDateTime.of(
+                                    LocalDate.parse(item.date(), dateFmt),
+                                    java.time.LocalTime.parse(item.time(), timeFmt)
+                            ).atZone(zone).toInstant().toEpochMilli(),
+                            new java.math.BigDecimal(item.open()),
+                            new java.math.BigDecimal(item.high()),
+                            new java.math.BigDecimal(item.low()),
+                            new java.math.BigDecimal(item.close()),
+                            item.jdiff_vol()
+                    ))
+                    .toList();
+
+            return new IndexMinuteChartResponse(indexCode, ncnt, dataPoints);
+
+        } catch (BusinessException e) {
+            throw e;
+        } catch (WebClientResponseException e) {
+            if (!isRetry && e.getStatusCode().value() == 401) {
+                log.warn("토큰 만료 감지 (401), 재발급 후 재시도: indexCode={}", indexCode);
+                tokenService.invalidateToken();
+                return getIndexMinuteChartFromLs(indexCode, ncnt, count, true);
+            }
+            log.error("LS증권 업종 분봉 API 호출 실패. HTTP 상태: {}, 응답: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        } catch (Exception e) {
+            log.error("업종 분봉 조회 중 예외 발생: indexCode={}", indexCode, e);
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+    }
+
+    private IndexChartResponse getOverseasIndexChartFromLs(String symbol, int count, boolean isRetry) {
+        String token = tokenService.getAccessToken();
+        try {
+            record LsReqBody(String kind, String symbol, int cnt, String jgbn, int nmin,
+                             String cts_date, String cts_time) {}
+            record LsReq(LsReqBody t3518InBlock) {}
+
+            int cnt = Math.min(count, 500);
+
+            String raw = lsWebClient.post()
+                    .uri("/stock/investinfo")
+                    .header("authorization", "Bearer " + token)
+                    .header("content-type", "application/json; charset=utf-8")
+                    .header("tr_cd", "t3518")
+                    .header("tr_cont", "N")
+                    .header("mac_address", DUMMY_MAC)
+                    .bodyValue(new LsReq(new LsReqBody("S", symbol, cnt, "0", 0, " ", " ")))
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            log.debug("LS t3518 overseas index chart raw: {}", raw);
+            LsOverseasIndexChartRes lsRes = objectMapper.readValue(raw, LsOverseasIndexChartRes.class);
+
+            if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                log.warn("LS API 해외 지수 차트 조회 실패: symbol={}, msg={}", symbol,
+                        lsRes != null ? lsRes.rsp_msg() : "NULL");
+                throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+            }
+
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyyMMdd");
+            List<LsOverseasIndexChartRes.LsOverseasIndexChartItem> rawList =
+                    lsRes.t3518OutBlock1() != null ? lsRes.t3518OutBlock1() : List.of();
+
+            ZoneId zone = ZoneId.of("America/New_York");
+            java.math.BigDecimal scale = new java.math.BigDecimal("100");
+            List<IndexChartResponse.IndexChartDataPoint> dataPoints = rawList.stream()
+                    .filter(item -> item.date() != null && !item.date().isBlank()
+                            && item.open() != null && !item.open().isBlank())
+                    .map(item -> new IndexChartResponse.IndexChartDataPoint(
+                            LocalDate.parse(item.date(), fmt).atStartOfDay(zone).toInstant().toEpochMilli(),
+                            new java.math.BigDecimal(item.open()).multiply(scale),
+                            new java.math.BigDecimal(item.high()).multiply(scale),
+                            new java.math.BigDecimal(item.low()).multiply(scale),
+                            new java.math.BigDecimal(item.price()).multiply(scale),
+                            item.volume() != null && !item.volume().isBlank()
+                                    ? Long.parseLong(item.volume().trim()) : 0L
+                    ))
+                    .toList();
+
+            return new IndexChartResponse(symbol, dataPoints);
+
+        } catch (BusinessException e) {
+            throw e;
+        } catch (WebClientResponseException e) {
+            if (!isRetry && e.getStatusCode().value() == 401) {
+                log.warn("토큰 만료 감지 (401), 재발급 후 재시도: symbol={}", symbol);
+                tokenService.invalidateToken();
+                return getOverseasIndexChartFromLs(symbol, count, true);
+            }
+            log.error("LS증권 해외 지수 차트 API 호출 실패. HTTP 상태: {}, 응답: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        } catch (Exception e) {
+            log.error("해외 지수 차트 조회 중 예외 발생: symbol={}", symbol, e);
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        }
+    }
+
+    private IndexMinuteChartResponse getOverseasIndexMinuteChartFromLs(String symbol, int ncnt, int count, boolean isRetry) {
+        String token = tokenService.getAccessToken();
+        try {
+            record LsReqBody(String kind, String symbol, int cnt, String jgbn, int nmin,
+                             String cts_date, String cts_time) {}
+            record LsReq(LsReqBody t3518InBlock) {}
+
+            int cnt = Math.min(count, 500);
+
+            String raw = lsWebClient.post()
+                    .uri("/stock/investinfo")
+                    .header("authorization", "Bearer " + token)
+                    .header("content-type", "application/json; charset=utf-8")
+                    .header("tr_cd", "t3518")
+                    .header("tr_cont", "N")
+                    .header("mac_address", DUMMY_MAC)
+                    .bodyValue(new LsReq(new LsReqBody("S", symbol, cnt, "3", ncnt, " ", " ")))
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            log.debug("LS t3518 overseas index minute chart raw: {}", raw);
+            LsOverseasIndexChartRes lsRes = objectMapper.readValue(raw, LsOverseasIndexChartRes.class);
+
+            if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                log.warn("LS API 해외 지수 분봉 조회 실패: symbol={}, msg={}", symbol,
+                        lsRes != null ? lsRes.rsp_msg() : "NULL");
+                throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+            }
+
+            DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("yyyyMMdd");
+            List<LsOverseasIndexChartRes.LsOverseasIndexChartItem> rawList =
+                    lsRes.t3518OutBlock1() != null ? lsRes.t3518OutBlock1() : List.of();
+
+            ZoneId zone = ZoneId.of("America/New_York");
+            java.math.BigDecimal scale = new java.math.BigDecimal("100");
+            List<IndexMinuteChartResponse.IndexMinuteChartDataPoint> dataPoints = rawList.stream()
+                    .filter(item -> item.date() != null && !item.date().isBlank()
+                            && item.time() != null && !item.time().isBlank()
+                            && item.open() != null && !item.open().isBlank())
+                    .map(item -> {
+                        String timeStr = item.time().length() >= 6 ? item.time().substring(0, 6) : item.time();
+                        return new IndexMinuteChartResponse.IndexMinuteChartDataPoint(
+                                LocalDateTime.of(
+                                        LocalDate.parse(item.date(), dateFmt),
+                                        java.time.LocalTime.parse(timeStr, DateTimeFormatter.ofPattern("HHmmss"))
+                                ).atZone(zone).toInstant().toEpochMilli(),
+                                new java.math.BigDecimal(item.open()).multiply(scale),
+                                new java.math.BigDecimal(item.high()).multiply(scale),
+                                new java.math.BigDecimal(item.low()).multiply(scale),
+                                new java.math.BigDecimal(item.price()).multiply(scale),
+                                item.volume() != null && !item.volume().isBlank()
+                                        ? Long.parseLong(item.volume().trim()) : 0L
+                        );
+                    })
+                    .toList();
+
+            return new IndexMinuteChartResponse(symbol, ncnt, dataPoints);
+
+        } catch (BusinessException e) {
+            throw e;
+        } catch (WebClientResponseException e) {
+            if (!isRetry && e.getStatusCode().value() == 401) {
+                log.warn("토큰 만료 감지 (401), 재발급 후 재시도: symbol={}", symbol);
+                tokenService.invalidateToken();
+                return getOverseasIndexMinuteChartFromLs(symbol, ncnt, count, true);
+            }
+            log.error("LS증권 해외 지수 분봉 API 호출 실패. HTTP 상태: {}, 응답: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
+        } catch (Exception e) {
+            log.error("해외 지수 분봉 조회 중 예외 발생: symbol={}", symbol, e);
             throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
         }
     }

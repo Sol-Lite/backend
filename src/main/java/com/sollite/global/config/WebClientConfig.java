@@ -3,6 +3,7 @@ package com.sollite.global.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.reactive.function.client.WebClient;
 
 @Configuration
@@ -23,6 +24,15 @@ public class WebClientConfig {
                 .baseUrl(baseUrl)
                 .defaultHeader("appkey", appKey)
                 .defaultHeader("appsecret", appSecret)
+                .build();
+    }
+
+    @Bean
+    public WebClient yahooWebClient() {
+        return WebClient.builder()
+                .baseUrl("https://query1.finance.yahoo.com")
+                .defaultHeader(HttpHeaders.USER_AGENT,
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .build();
     }
 }
