@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.balance.dto.PriceQuote;
 import com.sollite.foreignmarket.service.ForeignStockMarketService;
+import com.sollite.index.service.IndexService;
 import com.sollite.market.service.MarketService;
 import com.sollite.websocket.service.LsBrokerService;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ public class PriceLookupService {
     private final LsBrokerService lsBrokerService;
     private final MarketService marketService;
     private final ForeignStockMarketService foreignStockMarketService;
+    private final IndexService indexService;
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
 
@@ -120,9 +122,21 @@ public class PriceLookupService {
 
     // ── 환율 ──────────────────────────────────────────────────────────────────
 
-    /** USD/KRW 환율 조회 (1 USD = X KRW). WS lastValue → Redis snapshot 순으로 폴백. */
+    /** USD/KRW 환율 조회 (1 USD = X KRW). WS lastValue → Redis snapshot → indices 캐시 순으로 폴백. */
     public BigDecimal resolveUsdKrwRate() {
-        return parsePriceFromLastValue("/topic/currency/USD");
+        BigDecimal rate = parsePriceFromLastValue("/topic/currency/USD");
+        if (isValidPrice(rate)) return rate;
+
+        try {
+            return indexService.getIndices().stream()
+                    .filter(i -> "USD".equals(i.code()) && i.price() != null && i.price() > 0)
+                    .map(i -> BigDecimal.valueOf(i.price()))
+                    .findFirst()
+                    .orElse(null);
+        } catch (Exception e) {
+            log.warn("[PriceLookup] indices 캐시 환율 폴백 실패", e);
+            return null;
+        }
     }
 
     // ── 내부 ──────────────────────────────────────────────────────────────────
