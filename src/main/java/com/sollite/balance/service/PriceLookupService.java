@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.balance.dto.PriceQuote;
 import com.sollite.foreignmarket.service.ForeignStockMarketService;
 import com.sollite.index.service.IndexService;
+import com.sollite.market.dto.ForexChartResponse;
+import com.sollite.market.service.ForexService;
 import com.sollite.market.service.MarketService;
 import com.sollite.websocket.service.LsBrokerService;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +42,7 @@ public class PriceLookupService {
     private final MarketService marketService;
     private final ForeignStockMarketService foreignStockMarketService;
     private final IndexService indexService;
+    private final ForexService forexService;
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
 
@@ -48,6 +51,7 @@ public class PriceLookupService {
 
     private static final String BALANCE_PRICE_SNAPSHOT_PREFIX = "balance:price:snapshot:";
     private static final Duration BALANCE_PRICE_SNAPSHOT_TTL = Duration.ofHours(48);
+    private static final String USD_KRW_DISPLAY_SNAPSHOT_KEY = BALANCE_PRICE_SNAPSHOT_PREFIX + "fx:display:USDKRW";
 
     // ── 국내 ──────────────────────────────────────────────────────────────────
 
@@ -122,21 +126,70 @@ public class PriceLookupService {
 
     // ── 환율 ──────────────────────────────────────────────────────────────────
 
-    /** USD/KRW 환율 조회 (1 USD = X KRW). WS lastValue → Redis snapshot → indices 캐시 순으로 폴백. */
+    /** USD/KRW 환율 조회 (거래/체결용). WS lastValue → indices 캐시 → Yahoo 순으로 폴백. */
     public BigDecimal resolveUsdKrwRate() {
         BigDecimal rate = parsePriceFromLastValue("/topic/currency/USD");
         if (isValidPrice(rate)) return rate;
 
         try {
-            return indexService.getIndices().stream()
+            rate = indexService.getIndices().stream()
                     .filter(i -> "USD".equals(i.code()) && i.price() != null && i.price() > 0)
                     .map(i -> BigDecimal.valueOf(i.price()))
                     .findFirst()
                     .orElse(null);
+            if (isValidPrice(rate)) {
+                return rate;
+            }
         } catch (Exception e) {
             log.warn("[PriceLookup] indices 캐시 환율 폴백 실패", e);
-            return null;
         }
+
+        try {
+            ForexChartResponse chart = forexService.getForexChart("KRW=X", "1d", "1d");
+            rate = chart.data().isEmpty() ? null : chart.data().get(chart.data().size() - 1).close();
+            if (isValidPrice(rate)) {
+                return rate;
+            }
+        } catch (Exception e) {
+            log.warn("[PriceLookup] Yahoo 환율 폴백 실패", e);
+        }
+
+        return null;
+    }
+
+    /** USD/KRW 환율 조회 (자산/표시용). WS → Redis snapshot → Yahoo 순으로 빠르게 폴백. */
+    public BigDecimal resolveUsdKrwDisplayRate() {
+        BigDecimal rate = parsePriceFromLastValue("/topic/currency/USD");
+        if (isValidPrice(rate)) {
+            persistQuote(USD_KRW_DISPLAY_SNAPSHOT_KEY, rate, "WS", false, LocalDateTime.now());
+            return rate;
+        }
+
+        PriceQuote snapshot = readSnapshot(USD_KRW_DISPLAY_SNAPSHOT_KEY);
+        if (snapshot != null && isValidPrice(snapshot.price())) {
+            return snapshot.price();
+        }
+
+        BigDecimal yahooRate = resolveUsdKrwFromYahoo();
+        if (isValidPrice(yahooRate)) {
+            persistQuote(USD_KRW_DISPLAY_SNAPSHOT_KEY, yahooRate, "YAHOO", false, LocalDateTime.now());
+            return yahooRate;
+        }
+
+        return null;
+    }
+
+    private BigDecimal resolveUsdKrwFromYahoo() {
+        try {
+            ForexChartResponse chart = forexService.getForexChart("KRW=X", "1d", "1d");
+            BigDecimal rate = chart.data().isEmpty() ? null : chart.data().get(chart.data().size() - 1).close();
+            if (isValidPrice(rate)) {
+                return rate;
+            }
+        } catch (Exception e) {
+            log.warn("[PriceLookup] Yahoo 환율 폴백 실패", e);
+        }
+        return null;
     }
 
     // ── 내부 ──────────────────────────────────────────────────────────────────

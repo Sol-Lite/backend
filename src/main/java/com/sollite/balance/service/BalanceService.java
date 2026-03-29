@@ -227,7 +227,7 @@ public class BalanceService {
                                 h.getInstrument().getStockCode(),
                                 toForeignExchcd(h.getInstrument().getExchangeCode()))))
                 .toList());
-        BigDecimal usdKrwRate = resolveUsdKrwRate();
+        BigDecimal usdKrwRate = resolveUsdKrwDisplayRate();
 
         return holdings.stream()
                 .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getInstrumentId()), usdKrwRate))
@@ -315,6 +315,21 @@ public class BalanceService {
     }
 
     /**
+     * 스케줄러/배치에서 활성 라운드의 일일 스냅샷을 적재한다.
+     */
+    public void captureDailySnapshot(Account account, SimulationRound round) {
+        ValuationSummary valuation = calculateValuation(new AccountRound(account, round));
+        portfolioSnapshotService.upsertTodaySnapshot(
+                account,
+                round,
+                valuation.totalAssets(),
+                valuation.cashKrwAmount(),
+                valuation.cashUsdAmount(),
+                valuation.usdKrwRate(),
+                valuation.totalStockEvaluation());
+    }
+
+    /**
      * 포트폴리오 파이차트 구성 비중 — 현재가 기반 실시간 평가 (모든 금액 KRW 기준)
      * 현금은 KRW/USD 각각 아이템으로 분리 (둘 다 KRW 환산 evalAmount)
      */
@@ -332,7 +347,7 @@ public class BalanceService {
                 .anyMatch(cb -> "USD".equals(cb.getCurrencyCode())
                         && cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0)
                 || holdings.stream().anyMatch(h -> "USD".equals(h.getInstrument().getCurrencyCode()));
-        BigDecimal usdKrwRate = hasUsdExposure ? resolveUsdKrwRate() : BigDecimal.ZERO;
+        BigDecimal usdKrwRate = hasUsdExposure ? resolveUsdKrwDisplayRate() : BigDecimal.ZERO;
 
         Map<Long, BigDecimal> priceMap = resolveHoldingPrices(holdings);
 
@@ -419,9 +434,9 @@ public class BalanceService {
         };
     }
 
-    /** USD/KRW 환율 조회. 없으면 503 예외. */
-    private BigDecimal resolveUsdKrwRate() {
-        BigDecimal rate = priceLookupService.resolveUsdKrwRate();
+    /** USD/KRW 환율 조회 (자산/표시용). 없으면 503 예외. */
+    private BigDecimal resolveUsdKrwDisplayRate() {
+        BigDecimal rate = priceLookupService.resolveUsdKrwDisplayRate();
         if (rate == null || rate.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(BalanceErrorCode.EXCHANGE_RATE_UNAVAILABLE);
         }
@@ -485,7 +500,7 @@ public class BalanceService {
                 .anyMatch(cb -> "USD".equals(cb.getCurrencyCode())
                         && cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0)
                 || holdings.stream().anyMatch(h -> "USD".equals(h.getInstrument().getCurrencyCode()));
-        BigDecimal usdKrwRate = hasUsdExposure ? resolveUsdKrwRate() : BigDecimal.ZERO;
+        BigDecimal usdKrwRate = hasUsdExposure ? resolveUsdKrwDisplayRate() : BigDecimal.ZERO;
 
         BigDecimal cashKrwAmount = cashBalances.stream()
                 .filter(cb -> "KRW".equals(cb.getCurrencyCode()))
