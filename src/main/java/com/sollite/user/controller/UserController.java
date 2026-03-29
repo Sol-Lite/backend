@@ -1,6 +1,7 @@
 package com.sollite.user.controller;
 
 import com.sollite.global.util.AuthUtil;
+import com.sollite.user.domain.enums.ThemeType;
 import com.sollite.user.dto.*;
 import com.sollite.user.service.UserService;
 import jakarta.validation.Valid;
@@ -72,14 +73,14 @@ public class UserController {
      *
      * @param authentication 현재 인증된 사용자 정보
      * @param request 변경할 테마 (LIGHT 또는 DARK)
-     * @return 200 OK - 변경 완료 메시지
+     * @return 200 OK - 변경된 테마 값 포함 응답
      */
     @PatchMapping("/theme")
-    public ResponseEntity<MessageResponse> updateTheme(Authentication authentication,
-                                                       @Valid @RequestBody ThemeUpdateRequest request) {
+    public ResponseEntity<ThemeUpdateResponse> updateTheme(Authentication authentication,
+                                                           @Valid @RequestBody ThemeUpdateRequest request) {
         Long userId = AuthUtil.getUserId(authentication);
-        userService.updateTheme(userId, request);
-        return ResponseEntity.ok(new MessageResponse("테마가 변경되었습니다."));
+        ThemeType theme = userService.updateTheme(userId, request);
+        return ResponseEntity.ok(new ThemeUpdateResponse("테마가 변경되었습니다.", theme));
     }
 
 }

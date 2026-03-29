@@ -5,6 +5,7 @@ import com.sollite.global.exception.BusinessException;
 import com.sollite.global.security.JwtTokenProvider;
 import com.sollite.user.domain.entity.User;
 import com.sollite.user.domain.entity.UserConsent;
+import com.sollite.user.domain.enums.ThemeType;
 import com.sollite.user.domain.repository.UserConsentRepository;
 import com.sollite.user.domain.repository.UserRepository;
 import com.sollite.user.dto.*;
@@ -408,14 +409,16 @@ public class UserService {
      *
      * @param userId  사용자 ID
      * @param request 변경할 테마 값 (LIGHT 또는 DARK)
+     * @return 변경된 테마 값
      * @throws BusinessException 사용자 미등록 시
      */
     @Transactional
-    public void updateTheme(Long userId, ThemeUpdateRequest request) {
+    public ThemeType updateTheme(Long userId, ThemeUpdateRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
 
         user.updateTheme(request.theme());
+        return user.getTheme();
     }
 
     /**
