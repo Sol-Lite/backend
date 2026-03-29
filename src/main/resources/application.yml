@@ -100,6 +100,11 @@ app:
         target-delay-ms: 1000
         rate-limit-retry-delay-ms: 5000
         rate-limit-max-retries: 5
+  balance:
+    snapshot:
+      enabled: true
+      cron: "0 0 7 * * MON-FRI"
+      bootstrap-on-startup: true
 
 # ── Logging ──
 logging:
