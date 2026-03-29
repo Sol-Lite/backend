@@ -15,9 +15,11 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -589,8 +591,9 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             int nmin
     ) throws Exception {
         LocalDate today = LocalDate.now(ZoneId.of("America/New_York"));
-        LocalDate sdate = today.getDayOfWeek() == java.time.DayOfWeek.SATURDAY ? today.minusDays(1)
-                : today.getDayOfWeek() == java.time.DayOfWeek.SUNDAY ? today.minusDays(2)
+        DayOfWeek dow = today.getDayOfWeek();
+        LocalDate sdate = dow == DayOfWeek.SATURDAY ? today.minusDays(1)
+                : dow == DayOfWeek.SUNDAY ? today.minusDays(2)
                 : today;
         Map<LocalDateTime, LsG3203Res.G3203OutBlock1> deduplicated = new LinkedHashMap<>();
         String ctsDate = "";
