@@ -366,7 +366,8 @@ public class UserService {
                 user.getPhone(),
                 user.isEmailVerified(),
                 accountId,
-                user.getCreatedAt()
+                user.getCreatedAt(),
+                user.getTheme()
         );
     }
 
@@ -397,8 +398,24 @@ public class UserService {
                 user.getPhone(),
                 user.isEmailVerified(),
                 accountId,
-                user.getCreatedAt()
+                user.getCreatedAt(),
+                user.getTheme()
         );
+    }
+
+    /**
+     * 사용자의 화면 테마를 변경합니다.
+     *
+     * @param userId  사용자 ID
+     * @param request 변경할 테마 값 (LIGHT 또는 DARK)
+     * @throws BusinessException 사용자 미등록 시
+     */
+    @Transactional
+    public void updateTheme(Long userId, ThemeUpdateRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        user.updateTheme(request.theme());
     }
 
     /**

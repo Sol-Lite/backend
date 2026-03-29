@@ -67,4 +67,19 @@ public class UserController {
         return ResponseEntity.ok(new MessageResponse("비밀번호가 변경되었습니다."));
     }
 
+    /**
+     * 현재 사용자의 화면 테마를 변경합니다.
+     *
+     * @param authentication 현재 인증된 사용자 정보
+     * @param request 변경할 테마 (LIGHT 또는 DARK)
+     * @return 200 OK - 변경 완료 메시지
+     */
+    @PatchMapping("/theme")
+    public ResponseEntity<MessageResponse> updateTheme(Authentication authentication,
+                                                       @Valid @RequestBody ThemeUpdateRequest request) {
+        Long userId = AuthUtil.getUserId(authentication);
+        userService.updateTheme(userId, request);
+        return ResponseEntity.ok(new MessageResponse("테마가 변경되었습니다."));
+    }
+
 }

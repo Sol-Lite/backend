@@ -106,6 +106,10 @@ public class User {
         if (phone != null) this.phone = phone;
     }
 
+    public void updateTheme(String theme) {
+        this.theme = theme;
+    }
+
     public void withdraw() {
         this.status = UserStatus.WITHDRAWN;
         this.withdrawnAt = LocalDateTime.now();

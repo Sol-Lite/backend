@@ -9,5 +9,6 @@ public record UserProfileResponse(
         String phone,
         boolean emailVerified,
         Long accountId,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String theme
 ) {}
