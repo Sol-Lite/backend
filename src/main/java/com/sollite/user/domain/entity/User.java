@@ -1,5 +1,6 @@
 package com.sollite.user.domain.entity;
 
+import com.sollite.user.domain.enums.ThemeType;
 import com.sollite.user.domain.enums.UserStatus;
 import jakarta.persistence.*;
 import lombok.*;
@@ -53,8 +54,9 @@ public class User {
     @Column(name = "default_market", length = 10)
     private String defaultMarket = "DOMESTIC";
 
+    @Enumerated(EnumType.STRING)
     @Column(length = 20)
-    private String theme = "LIGHT";
+    private ThemeType theme = ThemeType.LIGHT;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -104,6 +106,10 @@ public class User {
     public void updateProfile(String name, String phone) {
         if (name != null) this.name = name;
         if (phone != null) this.phone = phone;
+    }
+
+    public void updateTheme(ThemeType theme) {
+        this.theme = theme;
     }
 
     public void withdraw() {

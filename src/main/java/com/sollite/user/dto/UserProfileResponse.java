@@ -1,5 +1,7 @@
 package com.sollite.user.dto;
 
+import com.sollite.user.domain.enums.ThemeType;
+
 import java.time.LocalDateTime;
 
 public record UserProfileResponse(
@@ -9,5 +11,6 @@ public record UserProfileResponse(
         String phone,
         boolean emailVerified,
         Long accountId,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        ThemeType theme
 ) {}
