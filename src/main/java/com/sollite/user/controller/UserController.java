@@ -53,6 +53,22 @@ public class UserController {
     }
 
     /**
+     * 현재 비밀번호를 검증합니다. 비밀번호 변경 폼에서 onBlur 시 호출됩니다.
+     *
+     * @param authentication 현재 인증된 사용자 정보
+     * @param request 검증할 현재 비밀번호
+     * @return 200 OK - 검증 성공 메시지
+     * @throws BusinessException 비밀번호 불일치 시
+     */
+    @PostMapping("/verify-password")
+    public ResponseEntity<MessageResponse> verifyPassword(Authentication authentication,
+                                                          @Valid @RequestBody PasswordVerifyRequest request) {
+        Long userId = AuthUtil.getUserId(authentication);
+        userService.verifyPassword(userId, request.currentPassword());
+        return ResponseEntity.ok(new MessageResponse("비밀번호가 확인되었습니다."));
+    }
+
+    /**
      * 현재 사용자의 비밀번호를 변경합니다.
      *
      * @param authentication 현재 인증된 사용자 정보

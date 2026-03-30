@@ -308,6 +308,23 @@ public class UserService {
     }
 
     /**
+     * 현재 비밀번호를 검증합니다. 비밀번호 변경 폼에서 onBlur 시 호출됩니다.
+     *
+     * @param userId 사용자 ID
+     * @param currentPassword 검증할 현재 비밀번호
+     * @throws BusinessException 비밀번호 불일치, 사용자 미등록 시
+     */
+    @Transactional(readOnly = true)
+    public void verifyPassword(Long userId, String currentPassword) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+
+        if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new BusinessException(UserErrorCode.INVALID_PASSWORD);
+        }
+    }
+
+    /**
      * 현재 비밀번호를 검증하고 새 비밀번호로 변경합니다.
      *
      * @param userId 사용자 ID
