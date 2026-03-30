@@ -2,6 +2,7 @@ package com.sollite.balance.service;
 
 import com.sollite.account.domain.entity.Account;
 import com.sollite.account.domain.entity.SimulationRound;
+import com.sollite.account.domain.enums.AccountStatus;
 import com.sollite.account.domain.enums.RoundStatus;
 import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.account.domain.repository.SimulationRoundRepository;
@@ -227,7 +228,7 @@ public class BalanceService {
                                 h.getInstrument().getStockCode(),
                                 toForeignExchcd(h.getInstrument().getExchangeCode()))))
                 .toList());
-        BigDecimal usdKrwRate = resolveUsdKrwRate();
+        BigDecimal usdKrwRate = resolveUsdKrwDisplayRate();
 
         return holdings.stream()
                 .map(h -> HoldingResponse.from(h, prices.get(h.getInstrument().getInstrumentId()), usdKrwRate))
@@ -315,6 +316,49 @@ public class BalanceService {
     }
 
     /**
+     * 활성 라운드 전체의 일일 스냅샷을 순차 적재한다 (스케줄러·부트스트랩 공용).
+     */
+    public void captureSnapshotsForActiveRounds(String trigger) {
+        List<SimulationRound> activeRounds =
+                simulationRoundRepository.findAllActiveWithAccountByRoundStatus(RoundStatus.ACTIVE, AccountStatus.ACTIVE);
+
+        int success = 0;
+        int failed = 0;
+
+        for (SimulationRound round : activeRounds) {
+            try {
+                captureDailySnapshot(round.getAccount(), round);
+                success++;
+            } catch (Exception e) {
+                failed++;
+                log.error("[SNAPSHOT][{}] 스냅샷 적재 실패 - accountId={}, roundId={}, error={}",
+                        trigger,
+                        round.getAccount().getAccountId(),
+                        round.getSimulationRoundId(),
+                        e.getMessage(), e);
+            }
+        }
+
+        log.info("[SNAPSHOT][{}] 스냅샷 적재 완료 - total={}, success={}, failed={}",
+                trigger, activeRounds.size(), success, failed);
+    }
+
+    /**
+     * 스케줄러/배치에서 활성 라운드의 일일 스냅샷을 적재한다.
+     */
+    public void captureDailySnapshot(Account account, SimulationRound round) {
+        ValuationSummary valuation = calculateValuation(new AccountRound(account, round));
+        portfolioSnapshotService.upsertTodaySnapshot(
+                account,
+                round,
+                valuation.totalAssets(),
+                valuation.cashKrwAmount(),
+                valuation.cashUsdAmount(),
+                valuation.usdKrwRate(),
+                valuation.totalStockEvaluation());
+    }
+
+    /**
      * 포트폴리오 파이차트 구성 비중 — 현재가 기반 실시간 평가 (모든 금액 KRW 기준)
      * 현금은 KRW/USD 각각 아이템으로 분리 (둘 다 KRW 환산 evalAmount)
      */
@@ -332,7 +376,7 @@ public class BalanceService {
                 .anyMatch(cb -> "USD".equals(cb.getCurrencyCode())
                         && cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0)
                 || holdings.stream().anyMatch(h -> "USD".equals(h.getInstrument().getCurrencyCode()));
-        BigDecimal usdKrwRate = hasUsdExposure ? resolveUsdKrwRate() : BigDecimal.ZERO;
+        BigDecimal usdKrwRate = hasUsdExposure ? resolveUsdKrwDisplayRate() : BigDecimal.ZERO;
 
         Map<Long, BigDecimal> priceMap = resolveHoldingPrices(holdings);
 
@@ -419,9 +463,9 @@ public class BalanceService {
         };
     }
 
-    /** USD/KRW 환율 조회. 없으면 503 예외. */
-    private BigDecimal resolveUsdKrwRate() {
-        BigDecimal rate = priceLookupService.resolveUsdKrwRate();
+    /** USD/KRW 환율 조회 (자산/표시용). 없으면 503 예외. */
+    private BigDecimal resolveUsdKrwDisplayRate() {
+        BigDecimal rate = priceLookupService.resolveUsdKrwDisplayRate();
         if (rate == null || rate.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(BalanceErrorCode.EXCHANGE_RATE_UNAVAILABLE);
         }
@@ -485,7 +529,7 @@ public class BalanceService {
                 .anyMatch(cb -> "USD".equals(cb.getCurrencyCode())
                         && cb.getTotalAmount().compareTo(BigDecimal.ZERO) > 0)
                 || holdings.stream().anyMatch(h -> "USD".equals(h.getInstrument().getCurrencyCode()));
-        BigDecimal usdKrwRate = hasUsdExposure ? resolveUsdKrwRate() : BigDecimal.ZERO;
+        BigDecimal usdKrwRate = hasUsdExposure ? resolveUsdKrwDisplayRate() : BigDecimal.ZERO;
 
         BigDecimal cashKrwAmount = cashBalances.stream()
                 .filter(cb -> "KRW".equals(cb.getCurrencyCode()))
