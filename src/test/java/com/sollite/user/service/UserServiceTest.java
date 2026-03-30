@@ -17,10 +17,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -234,36 +237,31 @@ class UserServiceTest {
         @Test
         @DisplayName("로그아웃 성공")
         void logout_success() {
-            given(redisTemplate.opsForValue()).willReturn(valueOperations);
-            given(valueOperations.get("refresh:1")).willReturn("valid-refresh-token");
+            given(redisTemplate.execute(any(RedisScript.class), anyList(), any())).willReturn(1L);
 
-            userService.logout(1L, "valid-refresh-token");
+            userService.logout(1L, "valid-refresh-token", null);
 
-            verify(redisTemplate).delete("refresh:1");
+            verify(redisTemplate).execute(any(RedisScript.class), anyList(), any());
         }
 
         @Test
         @DisplayName("로그아웃 실패 - 유효하지 않은 리프레시 토큰")
         void logout_fail_invalidToken() {
-            given(redisTemplate.opsForValue()).willReturn(valueOperations);
-            given(valueOperations.get("refresh:1")).willReturn("stored-token");
+            given(redisTemplate.execute(any(RedisScript.class), anyList(), any())).willReturn(-1L);
 
-            assertThatThrownBy(() -> userService.logout(1L, "wrong-token"))
+            assertThatThrownBy(() -> userService.logout(1L, "wrong-token", null))
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.INVALID_TOKEN));
         }
 
         @Test
-        @DisplayName("로그아웃 실패 - 이미 로그아웃된 상태")
-        void logout_fail_alreadyLoggedOut() {
-            given(redisTemplate.opsForValue()).willReturn(valueOperations);
-            given(valueOperations.get("refresh:1")).willReturn(null);
+        @DisplayName("로그아웃 - 이미 로그아웃된 상태는 성공으로 처리 (멱등)")
+        void logout_alreadyLoggedOut_isIdempotent() {
+            given(redisTemplate.execute(any(RedisScript.class), anyList(), any())).willReturn(0L);
 
-            assertThatThrownBy(() -> userService.logout(1L, "some-token"))
-                    .isInstanceOf(BusinessException.class)
-                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                            .isEqualTo(UserErrorCode.INVALID_TOKEN));
+            assertThatCode(() -> userService.logout(1L, "some-token", null))
+                    .doesNotThrowAnyException();
         }
     }
 
@@ -275,17 +273,16 @@ class UserServiceTest {
         @DisplayName("토큰 갱신 성공")
         void refreshToken_success() {
             User user = createUser();
+            long remainingTtl = 604800000L;
 
             given(jwtTokenProvider.validateToken("valid-refresh-token")).willReturn(true);
             given(jwtTokenProvider.getUserIdFromToken("valid-refresh-token")).willReturn(1L);
-            given(redisTemplate.opsForValue()).willReturn(valueOperations);
-            given(valueOperations.get("refresh:1")).willReturn("valid-refresh-token");
             given(userRepository.findById(1L)).willReturn(Optional.of(user));
             given(jwtTokenProvider.createAccessToken(any(), eq("test@example.com"))).willReturn("new-access-token");
             given(jwtTokenProvider.createRefreshToken(any(), anyLong())).willReturn("new-refresh-token");
-            given(redisTemplate.getExpire("refresh:1", TimeUnit.MILLISECONDS)).willReturn(0L);
-            given(jwtTokenProvider.getRefreshTokenExpiry(false)).willReturn(604800000L);
+            given(redisTemplate.getExpire("refresh:1", TimeUnit.MILLISECONDS)).willReturn(remainingTtl);
             given(jwtTokenProvider.getAccessTokenExpiry()).willReturn(1800000L);
+            given(redisTemplate.execute(any(RedisScript.class), anyList(), any(), any(), any())).willReturn(1L);
 
             TokenRefreshResult result = userService.refreshToken("valid-refresh-token");
 
@@ -441,6 +438,63 @@ class UserServiceTest {
                     .isInstanceOf(BusinessException.class)
                     .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                             .isEqualTo(UserErrorCode.TOKEN_EXPIRED));
+        }
+    }
+
+    @Nested
+    @DisplayName("현재 비밀번호 검증 (verifyPassword)")
+    class VerifyPassword {
+
+        @Test
+        @DisplayName("비밀번호 검증 성공")
+        void verifyPassword_success() {
+            User user = createUser();
+            given(redisTemplate.execute(any(RedisScript.class), anyList())).willReturn(0L);
+            given(redisTemplate.execute(any(RedisScript.class), anyList(), anyString())).willReturn(1L);
+            given(userRepository.findById(1L)).willReturn(Optional.of(user));
+            given(passwordEncoder.matches("Test1234!", "encodedPassword")).willReturn(true);
+
+            assertThatCode(() -> userService.verifyPassword(1L, "Test1234!"))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("비밀번호 검증 실패 - 비밀번호 불일치")
+        void verifyPassword_fail_wrongPassword() {
+            User user = createUser();
+            given(redisTemplate.execute(any(RedisScript.class), anyList())).willReturn(0L);
+            given(redisTemplate.execute(any(RedisScript.class), anyList(), anyString())).willReturn(1L);
+            given(userRepository.findById(1L)).willReturn(Optional.of(user));
+            given(passwordEncoder.matches("Wrong1234!", "encodedPassword")).willReturn(false);
+
+            assertThatThrownBy(() -> userService.verifyPassword(1L, "Wrong1234!"))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.INVALID_PASSWORD));
+        }
+
+        @Test
+        @DisplayName("비밀번호 검증 실패 - 존재하지 않는 사용자")
+        void verifyPassword_fail_userNotFound() {
+            given(redisTemplate.execute(any(RedisScript.class), anyList())).willReturn(0L);
+            given(redisTemplate.execute(any(RedisScript.class), anyList(), anyString())).willReturn(1L);
+            given(userRepository.findById(99L)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userService.verifyPassword(99L, "Test1234!"))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.USER_NOT_FOUND));
+        }
+
+        @Test
+        @DisplayName("비밀번호 검증 실패 - 요청 횟수 초과 (Rate Limit)")
+        void verifyPassword_fail_tooManyRequests() {
+            given(redisTemplate.execute(any(RedisScript.class), anyList())).willReturn(10L);
+
+            assertThatThrownBy(() -> userService.verifyPassword(1L, "Test1234!"))
+                    .isInstanceOf(BusinessException.class)
+                    .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                            .isEqualTo(UserErrorCode.TOO_MANY_REQUESTS));
         }
     }
 

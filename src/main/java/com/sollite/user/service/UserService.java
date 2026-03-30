@@ -37,6 +37,22 @@ public class UserService {
     private final LoginAttemptService loginAttemptService;
     private final EmailService emailService;
 
+    private static final int    VERIFY_PW_RATE_LIMIT = 10;         // 10분 내 10회
+    private static final long   VERIFY_PW_RATE_TTL   = 600;        // 10분 (초)
+    private static final String VERIFY_PW_LIMIT_KEY  = "verify_pw_limit:";
+
+    private static final RedisScript<Long> CHECK_RATE_SCRIPT = RedisScript.of(
+            "local c = redis.call('GET', KEYS[1]) " +
+            "if c == false then return 0 end " +
+            "return tonumber(c)",
+            Long.class);
+
+    private static final RedisScript<Long> INCR_RATE_SCRIPT = RedisScript.of(
+            "local c = redis.call('INCR', KEYS[1]) " +
+            "if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end " +
+            "return c",
+            Long.class);
+
     // 검증 + 삭제 원자 처리: 1=성공, 0=이미 없음(멱등), -1=토큰 불일치
     private static final RedisScript<Long> LOGOUT_SCRIPT = RedisScript.of(
             "local s = redis.call('GET', KEYS[1]) " +
@@ -308,6 +324,25 @@ public class UserService {
     }
 
     /**
+     * 현재 비밀번호를 검증합니다. 비밀번호 변경 폼에서 onBlur 시 호출됩니다.
+     * 10분 내 10회 초과 시 TOO_MANY_REQUESTS를 반환합니다.
+     *
+     * @param userId 사용자 ID
+     * @param currentPassword 검증할 현재 비밀번호
+     * @throws BusinessException 요청 초과, 비밀번호 불일치, 사용자 미등록 시
+     */
+    @Transactional(readOnly = true)
+    public void verifyPassword(Long userId, String currentPassword) {
+        String rateLimitKey = VERIFY_PW_LIMIT_KEY + userId;
+        Long count = redisTemplate.execute(CHECK_RATE_SCRIPT, List.of(rateLimitKey));
+        if (count != null && count >= VERIFY_PW_RATE_LIMIT) {
+            throw new BusinessException(UserErrorCode.TOO_MANY_REQUESTS);
+        }
+        redisTemplate.execute(INCR_RATE_SCRIPT, List.of(rateLimitKey), String.valueOf(VERIFY_PW_RATE_TTL));
+        loadAndVerifyPassword(userId, currentPassword);
+    }
+
+    /**
      * 현재 비밀번호를 검증하고 새 비밀번호로 변경합니다.
      *
      * @param userId 사용자 ID
@@ -319,16 +354,18 @@ public class UserService {
         if (!request.newPassword().equals(request.newPasswordConfirm())) {
             throw new BusinessException(UserErrorCode.PASSWORD_CONFIRM_MISMATCH);
         }
-
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
-
-        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
-            throw new BusinessException(UserErrorCode.INVALID_PASSWORD);
-        }
-
+        User user = loadAndVerifyPassword(userId, request.currentPassword());
         user.changePassword(passwordEncoder.encode(request.newPassword()));
         redisTemplate.delete("refresh:" + userId);
+    }
+
+    private User loadAndVerifyPassword(Long userId, String rawPassword) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+        if (!passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
+            throw new BusinessException(UserErrorCode.INVALID_PASSWORD);
+        }
+        return user;
     }
 
     private Long parseTokenUserId(java.util.Map<String, String> tokenData) {
