@@ -1,9 +1,11 @@
 package com.sollite.account.domain.repository;
 
 import com.sollite.account.domain.entity.SimulationRound;
+import com.sollite.account.domain.enums.AccountStatus;
 import com.sollite.account.domain.enums.RoundStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -18,9 +20,11 @@ public interface SimulationRoundRepository extends JpaRepository<SimulationRound
             from SimulationRound sr
             join fetch sr.account a
             where sr.roundStatus = :roundStatus
-              and a.accountStatus = com.sollite.account.domain.enums.AccountStatus.ACTIVE
+              and a.accountStatus = :accountStatus
             """)
-    List<SimulationRound> findAllActiveWithAccountByRoundStatus(RoundStatus roundStatus);
+    List<SimulationRound> findAllActiveWithAccountByRoundStatus(
+            @Param("roundStatus") RoundStatus roundStatus,
+            @Param("accountStatus") AccountStatus accountStatus);
 
     @Transactional
     void deleteByAccount_AccountId(Long accountId);

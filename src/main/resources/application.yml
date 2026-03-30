@@ -104,7 +104,7 @@ app:
     snapshot:
       enabled: true
       cron: "0 0 7 * * MON-FRI"
-      bootstrap-on-startup: true
+      bootstrap-on-startup: false
 
 # ── Logging ──
 logging:

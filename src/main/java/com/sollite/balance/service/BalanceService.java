@@ -2,6 +2,7 @@ package com.sollite.balance.service;
 
 import com.sollite.account.domain.entity.Account;
 import com.sollite.account.domain.entity.SimulationRound;
+import com.sollite.account.domain.enums.AccountStatus;
 import com.sollite.account.domain.enums.RoundStatus;
 import com.sollite.account.domain.repository.AccountRepository;
 import com.sollite.account.domain.repository.SimulationRoundRepository;
@@ -312,6 +313,34 @@ public class BalanceService {
                 .toList();
 
         return new AssetFlowResponse(points);
+    }
+
+    /**
+     * 활성 라운드 전체의 일일 스냅샷을 순차 적재한다 (스케줄러·부트스트랩 공용).
+     */
+    public void captureSnapshotsForActiveRounds(String trigger) {
+        List<SimulationRound> activeRounds =
+                simulationRoundRepository.findAllActiveWithAccountByRoundStatus(RoundStatus.ACTIVE, AccountStatus.ACTIVE);
+
+        int success = 0;
+        int failed = 0;
+
+        for (SimulationRound round : activeRounds) {
+            try {
+                captureDailySnapshot(round.getAccount(), round);
+                success++;
+            } catch (Exception e) {
+                failed++;
+                log.error("[SNAPSHOT][{}] 스냅샷 적재 실패 - accountId={}, roundId={}, error={}",
+                        trigger,
+                        round.getAccount().getAccountId(),
+                        round.getSimulationRoundId(),
+                        e.getMessage(), e);
+            }
+        }
+
+        log.info("[SNAPSHOT][{}] 스냅샷 적재 완료 - total={}, success={}, failed={}",
+                trigger, activeRounds.size(), success, failed);
     }
 
     /**

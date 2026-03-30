@@ -144,15 +144,8 @@ public class PriceLookupService {
             log.warn("[PriceLookup] indices 캐시 환율 폴백 실패", e);
         }
 
-        try {
-            ForexChartResponse chart = forexService.getForexChart("KRW=X", "1d", "1d");
-            rate = chart.data().isEmpty() ? null : chart.data().get(chart.data().size() - 1).close();
-            if (isValidPrice(rate)) {
-                return rate;
-            }
-        } catch (Exception e) {
-            log.warn("[PriceLookup] Yahoo 환율 폴백 실패", e);
-        }
+        BigDecimal yahooRate = resolveUsdKrwFromYahoo();
+        if (isValidPrice(yahooRate)) return yahooRate;
 
         return null;
     }
