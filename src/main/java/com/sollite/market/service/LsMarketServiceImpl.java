@@ -3,6 +3,7 @@ package com.sollite.market.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sollite.global.exception.BusinessException;
 import com.sollite.global.service.LsTokenService;
+import com.sollite.market.domain.entity.Instrument;
 import com.sollite.market.domain.entity.MarketDailyCandle;
 import com.sollite.market.domain.entity.MarketMinuteCandle;
 import com.sollite.market.domain.enums.StockTheme;
@@ -68,6 +69,7 @@ class LsMarketServiceImpl implements MarketService {
     private final MarketMinuteCandleRepository marketMinuteCandleRepository;
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
     private static final String INTEGRATED_EXCHANGE_SCOPE = "U";
+    private static final String SIGN_UNCHANGED = "3"; // LS API sign 코드: 보합
     private final Map<String, MinuteGapCacheEntry> minuteGapCache = new ConcurrentHashMap<>();
     private final Map<String, Object> minuteGapLocks = new ConcurrentHashMap<>();
     private final Set<String> minuteGapRefreshInFlight = ConcurrentHashMap.newKeySet();
@@ -1217,13 +1219,13 @@ class LsMarketServiceImpl implements MarketService {
     @Cacheable(cacheNames = "market:ranking", key = "'theme:' + #theme.name() + ':' + #type", sync = true)
     public List<StockRankingItem> getThemeRanking(StockTheme theme, String type) {
         try {
-            List<com.sollite.market.domain.entity.Instrument> themeInstruments = instrumentThemeMappingRepository.findInstrumentsByTheme(theme);
+            List<Instrument> themeInstruments = instrumentThemeMappingRepository.findInstrumentsByTheme(theme);
             if (themeInstruments.isEmpty()) {
                 return List.of();
             }
 
             Set<String> themeCodes = themeInstruments.stream()
-                    .map(com.sollite.market.domain.entity.Instrument::getStockCode)
+                    .map(Instrument::getStockCode)
                     .collect(java.util.stream.Collectors.toSet());
 
             // @Cacheable 프록시를 통하기 위해 ApplicationContext에서 빈을 직접 조회
@@ -1231,24 +1233,24 @@ class LsMarketServiceImpl implements MarketService {
 
             List<StockRankingItem> filtered = allRanking.stream()
                     .filter(item -> item.stockCode() != null && themeCodes.contains(item.stockCode()))
-                    .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
 
             Set<String> rankedCodes = filtered.stream()
                     .map(StockRankingItem::stockCode)
                     .collect(java.util.stream.Collectors.toSet());
 
-            List<com.sollite.market.domain.entity.Instrument> unrankedInstruments = themeInstruments.stream()
+            List<Instrument> unrankedInstruments = themeInstruments.stream()
                     .filter(inst -> !rankedCodes.contains(inst.getStockCode()))
-                    .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
 
-            unrankedInstruments.sort(java.util.Comparator.comparingLong(
-                    inst -> inst.getMarketCap() != null ? -inst.getMarketCap() : Long.MAX_VALUE
-            ));
+            unrankedInstruments.sort(
+                    Comparator.comparing(Instrument::getMarketCap, Comparator.nullsLast(Comparator.reverseOrder()))
+            );
 
-            for (com.sollite.market.domain.entity.Instrument inst : unrankedInstruments) {
+            for (Instrument inst : unrankedInstruments) {
                 filtered.add(new StockRankingItem(
                         0, inst.getStockCode(), inst.getMarketType(), inst.getStockName(),
-                        0L, "3", 0L, 0.0, 0L, 0L, 0L, null,
+                        0L, SIGN_UNCHANGED, 0L, 0.0, 0L, 0L, 0L, null,
                         null, null, null, null, null, null, null, null, null, null
                 ));
             }
@@ -1265,16 +1267,17 @@ class LsMarketServiceImpl implements MarketService {
     }
 
     @Override
+    @Cacheable(cacheNames = "market:ranking", key = "'theme:top-market-cap:' + #theme.name()", sync = true)
     public StockRankingItem getTopMarketCapStock(StockTheme theme) {
-        List<com.sollite.market.domain.entity.Instrument> top = instrumentThemeMappingRepository
+        List<Instrument> top = instrumentThemeMappingRepository
                 .findTopInstrumentByThemeOrderByMarketCapDesc(theme, PageRequest.of(0, 1));
         if (top.isEmpty()) {
             return null;
         }
-        com.sollite.market.domain.entity.Instrument inst = top.get(0);
+        Instrument inst = top.get(0);
         return new StockRankingItem(
                 1, inst.getStockCode(), inst.getMarketType(), inst.getStockName(),
-                0L, "3", 0L, 0.0, 0L, 0L, inst.getMarketCap(), null,
+                0L, SIGN_UNCHANGED, 0L, 0.0, 0L, 0L, inst.getMarketCap(), null,
                 null, null, null, null, null, null, null, null, null, null
         );
     }

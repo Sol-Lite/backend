@@ -23,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
 @Slf4j
@@ -101,7 +100,7 @@ public class DashboardService {
             throw new BusinessException(WidgetErrorCode.PAGE_LIMIT_EXCEEDED);
         }
 
-        AtomicInteger stockIdx = new AtomicInteger(0);
+        int[] stockIdx = {0};
         List<WidgetLayoutRequest> filledWidgets = request.widgets().stream()
                 .map(w -> {
                     if (STOCK_NEWS_TYPE.equals(w.widgetType()) && topMarketCapStock != null) {
@@ -112,7 +111,7 @@ public class DashboardService {
                         );
                     }
                     if (!STOCK_CHART_TYPE.equals(w.widgetType())) return w;
-                    int idx = stockIdx.getAndIncrement();
+                    int idx = stockIdx[0]++;
                     if (idx >= ranking.size()) return w;
                     return new WidgetLayoutRequest(
                             w.widgetType(), w.positionX(), w.positionY(),

@@ -15,7 +15,7 @@ public interface InstrumentThemeMappingRepository extends JpaRepository<Instrume
     @Query("SELECT m.instrument.stockCode FROM InstrumentThemeMapping m WHERE m.themeCode = :theme")
     Set<String> findStockCodesByTheme(@Param("theme") StockTheme theme);
 
-    @Query("SELECT m.instrument FROM InstrumentThemeMapping m JOIN m.instrument WHERE m.themeCode = :theme")
+    @Query("SELECT m.instrument FROM InstrumentThemeMapping m WHERE m.themeCode = :theme")
     List<Instrument> findInstrumentsByTheme(@Param("theme") StockTheme theme);
 
     @Query("SELECT m.instrument FROM InstrumentThemeMapping m JOIN m.instrument WHERE m.themeCode = :theme ORDER BY m.instrument.marketCap DESC NULLS LAST")
