@@ -18,6 +18,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Locale;
+
 
 /**
  * 사용자 인증 관련 API 컨트롤러.
@@ -56,9 +58,14 @@ public class AuthController {
      */
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request,
+                                               HttpServletRequest httpRequest,
                                                HttpServletResponse httpResponse) {
         LoginResult result = userService.login(request);
-        httpResponse.addHeader(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie(result.refreshToken(), result.refreshTokenMaxAge()).toString());
+        httpResponse.addHeader(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie(
+                result.refreshToken(),
+                result.refreshTokenMaxAge(),
+                httpRequest
+        ).toString());
         return ResponseEntity.ok(result.response());
     }
 
@@ -140,12 +147,17 @@ public class AuthController {
     @PostMapping("/token/refresh")
     public ResponseEntity<TokenRefreshResponse> refreshToken(
             @CookieValue(name = "refreshToken", required = false) String refreshToken,
+            HttpServletRequest httpRequest,
             HttpServletResponse httpResponse) {
         if (refreshToken == null) {
             throw new BusinessException(UserErrorCode.INVALID_TOKEN);
         }
         TokenRefreshResult result = userService.refreshToken(refreshToken);
-        httpResponse.addHeader(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie(result.refreshToken(), result.refreshTokenMaxAge()).toString());
+        httpResponse.addHeader(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie(
+                result.refreshToken(),
+                result.refreshTokenMaxAge(),
+                httpRequest
+        ).toString());
         return ResponseEntity.ok(result.response());
     }
 
@@ -165,7 +177,7 @@ public class AuthController {
         Long userId = AuthUtil.getUserId(authentication);
         String accessToken = resolveToken(httpRequest);
         userService.logout(userId, refreshToken != null ? refreshToken : "", accessToken);
-        httpResponse.addHeader(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie("", 0).toString());
+        httpResponse.addHeader(HttpHeaders.SET_COOKIE, buildRefreshTokenCookie("", 0, httpRequest).toString());
         return ResponseEntity.ok(new MessageResponse("로그아웃 되었습니다."));
     }
 
@@ -177,13 +189,54 @@ public class AuthController {
         return null;
     }
 
-    private ResponseCookie buildRefreshTokenCookie(String value, long maxAgeMillis) {
+    private ResponseCookie buildRefreshTokenCookie(String value, long maxAgeMillis, HttpServletRequest request) {
         return ResponseCookie.from("refreshToken", value)
                 .httpOnly(true)
-                .secure(cookieSecure)
+                .secure(shouldUseSecureCookie(request))
                 .path("/api/auth")
                 .maxAge(maxAgeMillis / 1000)
                 .sameSite("Lax")
                 .build();
+    }
+
+    private boolean shouldUseSecureCookie(HttpServletRequest request) {
+        if (!cookieSecure) {
+            return false;
+        }
+        if (request == null) {
+            return true;
+        }
+        if (request.isSecure()) {
+            return true;
+        }
+
+        String forwardedProto = request.getHeader("X-Forwarded-Proto");
+        if (forwardedProto != null && "https".equalsIgnoreCase(forwardedProto)) {
+            return true;
+        }
+
+        String origin = request.getHeader(HttpHeaders.ORIGIN);
+        if (origin != null && origin.toLowerCase(Locale.ROOT).startsWith("https://")) {
+            return true;
+        }
+
+        String referer = request.getHeader(HttpHeaders.REFERER);
+        if (referer != null && referer.toLowerCase(Locale.ROOT).startsWith("https://")) {
+            return true;
+        }
+
+        return !isLocalhost(request.getServerName());
+    }
+
+    private boolean isLocalhost(String serverName) {
+        if (serverName == null) {
+            return false;
+        }
+        String normalized = serverName.trim().toLowerCase(Locale.ROOT);
+        return normalized.equals("localhost")
+                || normalized.equals("127.0.0.1")
+                || normalized.equals("::1")
+                || normalized.equals("[::1]")
+                || normalized.equals("0:0:0:0:0:0:0:1");
     }
 }

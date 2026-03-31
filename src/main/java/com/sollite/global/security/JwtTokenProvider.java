@@ -43,7 +43,7 @@ public class JwtTokenProvider {
      *
      * @param userId 사용자 ID
      * @param email 사용자 이메일
-     * @return 서명된 JWT Access Token 문자열 (30분 유효)
+     * @return 서명된 JWT Access Token 문자열 (2시간 유효)
      */
     public String createAccessToken(Long userId, String email) {
         Date now = new Date();
@@ -51,7 +51,7 @@ public class JwtTokenProvider {
                 .subject(String.valueOf(userId))      // 토큰의 주체(subject)로 userId 설정
                 .claim("email", email)                // 추가 정보(claim)로 email 포함
                 .issuedAt(now)                        // 발급 시간 설정
-                .expiration(new Date(now.getTime() + accessTokenExpiry))  // 만료 시간 설정 (현재 + 30분)
+                .expiration(new Date(now.getTime() + accessTokenExpiry))  // 만료 시간 설정 (현재 + 2시간)
                 .signWith(key)                        // HMAC-SHA256으로 서명
                 .compact();                           // JWT 문자열로 압축 및 반환
     }
@@ -104,7 +104,7 @@ public class JwtTokenProvider {
     /**
      * Access Token의 유효시간(밀리초)을 반환한다.
      *
-     * @return Access Token 유효시간 (기본값: 1800000ms = 30분)
+     * @return Access Token 유효시간 (기본값: 7200000ms = 2시간)
      */
     public long getAccessTokenExpiry() {
         return accessTokenExpiry;
