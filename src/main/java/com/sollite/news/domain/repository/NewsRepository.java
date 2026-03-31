@@ -14,5 +14,7 @@ public interface NewsRepository extends MongoRepository<NewsDocument, String> {
 
     List<NewsDocument> findByPublishedAtGreaterThanEqualOrderByPublishedAtDesc(Date from, Pageable pageable);
 
+    List<NewsDocument> findByStockIndexOrderByPublishedAtDesc(String stockIndex, Pageable pageable);
+
     Optional<NewsDocument> findByNewsId(String newsId);
 }

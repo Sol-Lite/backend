@@ -1,6 +1,7 @@
 package com.sollite.news.service;
 
 import com.sollite.global.exception.BusinessException;
+import com.sollite.news.domain.entity.NewsDocument;
 import com.sollite.news.domain.repository.NewsRepository;
 import com.sollite.news.dto.NewsDetailResponse;
 import com.sollite.news.dto.NewsResponse;
@@ -10,10 +11,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.util.Date;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -23,25 +23,13 @@ public class NewsService {
 
     @Transactional(readOnly = true)
     public List<NewsResponse> getLatestNews(int size) {
-        Date todayStart = Date.from(
-                LocalDate.now(ZoneId.of("Asia/Seoul"))
-                        .atStartOfDay(ZoneId.of("Asia/Seoul"))
-                        .toInstant()
-        );
+        List<NewsDocument> krNews = newsRepository
+                .findByStockIndexOrderByPublishedAtDesc("KOSDAQ", PageRequest.of(0, size));
+        List<NewsDocument> usNews = newsRepository
+                .findByStockIndexOrderByPublishedAtDesc("NASDAQ", PageRequest.of(0, size));
 
-        List<NewsResponse> todayNews = newsRepository
-                .findByPublishedAtGreaterThanEqualOrderByPublishedAtDesc(todayStart, PageRequest.of(0, size))
-                .stream()
-                .map(NewsResponse::from)
-                .toList();
-
-        if (!todayNews.isEmpty()) {
-            return todayNews;
-        }
-
-        return newsRepository
-                .findAllByOrderByPublishedAtDesc(PageRequest.of(0, size))
-                .stream()
+        return Stream.concat(krNews.stream(), usNews.stream())
+                .sorted(Comparator.comparing(NewsDocument::getPublishedAt).reversed())
                 .map(NewsResponse::from)
                 .toList();
     }
