@@ -3,6 +3,7 @@ package com.sollite.widget.controller;
 import com.sollite.global.util.AuthUtil;
 import com.sollite.widget.dto.DashboardPageResponse;
 import com.sollite.widget.dto.DashboardSaveRequest;
+import com.sollite.widget.dto.PresetApplyRequest;
 import com.sollite.widget.service.DashboardService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -31,5 +32,13 @@ public class DashboardController {
             @Valid @RequestBody DashboardSaveRequest request) {
         Long userId = AuthUtil.getUserId(authentication);
         return ResponseEntity.ok(dashboardService.saveMyDashboards(userId, request));
+    }
+
+    @PostMapping("/presets/apply")
+    public ResponseEntity<List<DashboardPageResponse>> applyPreset(
+            Authentication authentication,
+            @Valid @RequestBody PresetApplyRequest request) {
+        Long userId = AuthUtil.getUserId(authentication);
+        return ResponseEntity.ok(dashboardService.applyPreset(userId, request));
     }
 }

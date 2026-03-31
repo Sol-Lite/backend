@@ -1217,17 +1217,41 @@ class LsMarketServiceImpl implements MarketService {
     @Cacheable(cacheNames = "market:ranking", key = "'theme:' + #theme.name() + ':' + #type", sync = true)
     public List<StockRankingItem> getThemeRanking(StockTheme theme, String type) {
         try {
-            Set<String> themeCodes = instrumentThemeMappingRepository.findStockCodesByTheme(theme);
-            if (themeCodes.isEmpty()) {
+            List<com.sollite.market.domain.entity.Instrument> themeInstruments = instrumentThemeMappingRepository.findInstrumentsByTheme(theme);
+            if (themeInstruments.isEmpty()) {
                 return List.of();
             }
+
+            Set<String> themeCodes = themeInstruments.stream()
+                    .map(com.sollite.market.domain.entity.Instrument::getStockCode)
+                    .collect(java.util.stream.Collectors.toSet());
 
             // @Cacheable 프록시를 통하기 위해 ApplicationContext에서 빈을 직접 조회
             List<StockRankingItem> allRanking = applicationContext.getBean(MarketService.class).getRanking(type, "all");
 
             List<StockRankingItem> filtered = allRanking.stream()
                     .filter(item -> item.stockCode() != null && themeCodes.contains(item.stockCode()))
-                    .toList();
+                    .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+
+            Set<String> rankedCodes = filtered.stream()
+                    .map(StockRankingItem::stockCode)
+                    .collect(java.util.stream.Collectors.toSet());
+
+            List<com.sollite.market.domain.entity.Instrument> unrankedInstruments = themeInstruments.stream()
+                    .filter(inst -> !rankedCodes.contains(inst.getStockCode()))
+                    .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+
+            unrankedInstruments.sort(java.util.Comparator.comparingLong(
+                    inst -> inst.getMarketCap() != null ? -inst.getMarketCap() : Long.MAX_VALUE
+            ));
+
+            for (com.sollite.market.domain.entity.Instrument inst : unrankedInstruments) {
+                filtered.add(new StockRankingItem(
+                        0, inst.getStockCode(), inst.getMarketType(), inst.getStockName(),
+                        0L, "3", 0L, 0.0, 0L, 0L, 0L, null,
+                        null, null, null, null, null, null, null, null, null, null
+                ));
+            }
 
             return IntStream.range(0, filtered.size())
                     .mapToObj(i -> filtered.get(i).withRank(i + 1))
@@ -1238,6 +1262,21 @@ class LsMarketServiceImpl implements MarketService {
             log.error("테마 순위 조회 중 예외 발생: theme={}, type={}", theme, type, e);
             throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
         }
+    }
+
+    @Override
+    public StockRankingItem getTopMarketCapStock(StockTheme theme) {
+        List<com.sollite.market.domain.entity.Instrument> top = instrumentThemeMappingRepository
+                .findTopInstrumentByThemeOrderByMarketCapDesc(theme, PageRequest.of(0, 1));
+        if (top.isEmpty()) {
+            return null;
+        }
+        com.sollite.market.domain.entity.Instrument inst = top.get(0);
+        return new StockRankingItem(
+                1, inst.getStockCode(), inst.getMarketType(), inst.getStockName(),
+                0L, "3", 0L, 0.0, 0L, 0L, inst.getMarketCap(), null,
+                null, null, null, null, null, null, null, null, null, null
+        );
     }
 
     static boolean supportsRankingMarket(String market) {
