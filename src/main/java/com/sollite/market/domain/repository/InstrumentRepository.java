@@ -2,6 +2,7 @@ package com.sollite.market.domain.repository;
 
 import com.sollite.market.domain.entity.Instrument;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -20,7 +21,8 @@ public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
             "OR i.stockName LIKE CONCAT('%', :keyword, '%') " +
             "OR UPPER(i.stockNameEn) LIKE UPPER(CONCAT('%', :keyword, '%'))) " +
             "ORDER BY CASE WHEN UPPER(i.stockCode) = UPPER(:keyword) THEN 0 " +
-            "WHEN UPPER(i.stockCode) LIKE UPPER(CONCAT(:keyword, '%')) THEN 1 ELSE 2 END")
+            "WHEN UPPER(i.stockCode) LIKE UPPER(CONCAT(:keyword, '%')) THEN 1 ELSE 2 END, " +
+            "CASE WHEN i.marketCap IS NULL THEN 1 ELSE 0 END, i.marketCap DESC")
     List<Instrument> searchByKeyword(@Param("keyword") String keyword);
 
     @Query(value = """
@@ -37,6 +39,25 @@ public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
     default Optional<String> findFirstExchangeCodeByStockCode(String stockCode) {
         return findExchangeCodesByStockCode(stockCode).stream().findFirst();
     }
+
+    @Query("SELECT DISTINCT i.stockCode FROM Instrument i WHERE i.activeYn = 'Y' AND i.marketType IN ('KOSPI', 'KOSDAQ') AND i.etfYn = 'N'")
+    List<String> findActiveDomesticNonEtfStockCodes();
+
+    @Modifying
+    @Query("UPDATE Instrument i SET i.marketCap = :marketCap WHERE i.stockCode = :stockCode AND i.marketType IN ('KOSPI', 'KOSDAQ')")
+    void updateMarketCapByStockCode(@Param("stockCode") String stockCode, @Param("marketCap") Long marketCap);
+
+    interface StockCodeExchangeCodeView {
+        String getStockCode();
+        String getExchangeCode();
+    }
+
+    @Query("SELECT DISTINCT i.stockCode AS stockCode, i.exchangeCode AS exchangeCode FROM Instrument i WHERE i.activeYn = 'Y' AND i.marketType IN ('NASDAQ', 'NYSE') AND i.etfYn = 'N' AND i.exchangeCode IS NOT NULL AND i.marketCap IS NULL")
+    List<StockCodeExchangeCodeView> findActiveForeignNonEtfStockCodeExchangePairs();
+
+    @Modifying
+    @Query("UPDATE Instrument i SET i.marketCap = :marketCap WHERE i.stockCode = :stockCode AND i.marketType IN ('NASDAQ', 'NYSE')")
+    void updateMarketCapByForeignStockCode(@Param("stockCode") String stockCode, @Param("marketCap") Long marketCap);
 
     @Query("""
             SELECT i FROM Instrument i
