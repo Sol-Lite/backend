@@ -33,6 +33,7 @@ public interface MarketService {
     OrderbookResponse getOrderbook(String stockCode);
     List<StockRankingItem> getRanking(String type, String market);
     List<StockRankingItem> getThemeRanking(StockTheme theme, String type);
+    StockRankingItem getTopMarketCapStock(StockTheme theme);
     StockInfoResponse getStockInfo(String stockCode);
     IndexChartResponse getIndexChart(String indexCode, int count);
     IndexMinuteChartResponse getIndexMinuteChart(String indexCode, int ncnt, int count);

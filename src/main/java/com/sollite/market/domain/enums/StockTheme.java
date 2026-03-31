@@ -15,7 +15,7 @@ public enum StockTheme {
     FINANCE("금융"),
     SHIPBUILDING("조선"),
     DEFENSE("방산"),
-    MANUFACTURING("제조업"),
+    MANUFACTURING("인프라 & 산업재"),
     ROBOT("로봇");
 
     private final String displayName;

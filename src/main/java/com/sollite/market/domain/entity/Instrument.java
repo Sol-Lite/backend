@@ -55,6 +55,9 @@ public class Instrument {
     @Column(name = "active_yn", nullable = false, columnDefinition = "CHAR(1)")
     private String activeYn;
 
+    @Column(name = "market_cap")
+    private Long marketCap;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
