@@ -23,13 +23,16 @@ public class NewsService {
 
     @Transactional(readOnly = true)
     public List<NewsResponse> getLatestNews(int size) {
-        List<NewsDocument> krNews = newsRepository
+        List<NewsDocument> kospiNews = newsRepository
+                .findByStockIndexOrderByPublishedAtDesc("KOSPI", PageRequest.of(0, size));
+        List<NewsDocument> kosdaqNews = newsRepository
                 .findByStockIndexOrderByPublishedAtDesc("KOSDAQ", PageRequest.of(0, size));
         List<NewsDocument> usNews = newsRepository
                 .findByStockIndexOrderByPublishedAtDesc("NASDAQ", PageRequest.of(0, size));
 
-        return Stream.concat(krNews.stream(), usNews.stream())
+        return Stream.concat(Stream.concat(kospiNews.stream(), kosdaqNews.stream()), usNews.stream())
                 .sorted(Comparator.comparing(NewsDocument::getPublishedAt).reversed())
+                .limit(size)
                 .map(NewsResponse::from)
                 .toList();
     }
