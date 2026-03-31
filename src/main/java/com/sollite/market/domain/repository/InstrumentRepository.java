@@ -40,7 +40,7 @@ public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
         return findExchangeCodesByStockCode(stockCode).stream().findFirst();
     }
 
-    @Query("SELECT DISTINCT i.stockCode FROM Instrument i WHERE i.activeYn = 'Y' AND i.marketType IN ('KOSPI', 'KOSDAQ') AND i.etfYn = 'N'")
+    @Query("SELECT DISTINCT i.stockCode FROM Instrument i WHERE i.activeYn = 'Y' AND i.marketType IN ('KOSPI', 'KOSDAQ') AND i.etfYn = 'N' AND i.marketCap IS NULL")
     List<String> findActiveDomesticNonEtfStockCodes();
 
     @Modifying

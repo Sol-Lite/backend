@@ -7,6 +7,7 @@ import com.sollite.market.dto.FinanceResponse;
 import com.sollite.market.service.MarketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -27,11 +28,10 @@ public class MarketCapInitializer implements ApplicationRunner {
     private final MarketService marketService;
     private final ForeignStockMarketService foreignStockMarketService;
 
-    @org.springframework.beans.factory.annotation.Value("${app.market.cap.domestic.skip:false}")
+    @Value("${app.market.cap.domestic.skip:false}")
     private boolean skipDomestic;
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) throws Exception {
         if (!skipDomestic) {
             runDomestic();
@@ -52,7 +52,7 @@ public class MarketCapInitializer implements ApplicationRunner {
                 String raw = finance.marketCap();
                 if (raw != null && !raw.isBlank()) {
                     long cap = Long.parseLong(raw.trim());
-                    instrumentRepository.updateMarketCapByStockCode(stockCode, cap);
+                    saveDomesticMarketCap(stockCode, cap);
                     updated++;
                     log.info("[MarketCap] 국내 {}/{} 완료: stockCode={}, marketCap={}억", updated, stockCodes.size(), stockCode, cap);
                 }
@@ -93,7 +93,7 @@ public class MarketCapInitializer implements ApplicationRunner {
                         .divide(BigDecimal.valueOf(100_000_000L), 0, RoundingMode.HALF_UP)
                         .longValue();
 
-                instrumentRepository.updateMarketCapByForeignStockCode(stockCode, capUkrw);
+                saveForeignMarketCap(stockCode, capUkrw);
                 updated++;
                 log.info("[MarketCap] 해외 {}/{} 완료: stockCode={}, shareprc={}USD, marketCap={}억", updated, pairs.size(), stockCode, shareprc, capUkrw);
 
@@ -107,5 +107,15 @@ public class MarketCapInitializer implements ApplicationRunner {
         }
 
         log.info("[MarketCap] 해외주식 완료: {}/{} 종목 업데이트", updated, pairs.size());
+    }
+
+    @Transactional
+    public void saveDomesticMarketCap(String stockCode, Long cap) {
+        instrumentRepository.updateMarketCapByStockCode(stockCode, cap);
+    }
+
+    @Transactional
+    public void saveForeignMarketCap(String stockCode, Long cap) {
+        instrumentRepository.updateMarketCapByForeignStockCode(stockCode, cap);
     }
 }
