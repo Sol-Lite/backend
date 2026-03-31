@@ -1,0 +1,105 @@
+spring:
+  datasource:
+    url: jdbc:oracle:thin:@sollite-oracle.cliw86kamf7q.ap-northeast-2.rds.amazonaws.com:1521/ORCL
+    username: ADMIN
+    password: ${ORACLE_PASSWORD}
+    driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      maximum-pool-size: 8
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+      dialect: org.hibernate.dialect.OracleDialect
+      format_sql: false
+    show-sql: false
+
+  flyway:
+    enabled: false
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+    validate-on-migrate: false
+    repair-on-migrate: true
+
+  data:
+    mongodb:
+      uri: mongodb://solliteadmin:${MONGO_PASSWORD}@sollite-docdb.cluster-cliw86kamf7q.ap-northeast-2.docdb.amazonaws.com:27017/sollite?tls=true&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false
+    redis:
+      host: sollite-redis.e48vdp.0001.apn2.cache.amazonaws.com
+      port: 6379
+      ssl:
+        enabled: false
+
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+  jackson:
+    time-zone: Asia/Seoul
+    date-format: yyyy-MM-dd'T'HH:mm:ss
+
+server:
+  port: 8080
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    persist-authorization: true
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-expiry: 7200000
+  refresh-token-expiry: 604800000
+  auto-login-token-expiry: 2592000000
+
+app:
+  base-url: ${APP_BASE_URL}
+  frontend-url: ${APP_FRONTEND_URL}
+  cookie:
+    secure: true
+  mail:
+    from: ${MAIL_FROM}
+  market:
+    backfill:
+      daily:
+        enabled: false
+      minute:
+        enabled: false
+
+logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} : %msg%n"
+  level:
+    root: WARN
+    com.sollite: INFO
+    org.springframework.web: WARN
+    org.springframework.security: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, metrics
+  endpoint:
+    health:
+      show-details: never
+
+ls:
+  api:
+    url: "https://openapi.ls-sec.co.kr:8080"
+    appkey: ${LS_APPKEY}
+    appsecret: ${LS_APPSECRET}
+    mac-address: ${LS_MAC_ADDRESS:}
+  ws:
+    url: wss://openapi.ls-sec.co.kr:9443/websocket
