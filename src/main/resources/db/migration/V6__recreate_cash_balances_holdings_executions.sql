@@ -2,12 +2,13 @@
 -- V6: 구형 수동 스키마 테이블 재생성
 -- cash_balances / holdings / executions 가 V1 실행 전 수동 생성되어
 -- CREATE TABLE 실패 → repair-on-migrate 통과 → 스키마 불일치 발생
+-- 부분 실행 후 재시도되는 경우를 대비해 존재하는 테이블만 안전하게 삭제한다.
 -- ----------------------------------------
 
-DROP TABLE executions;
-DROP TABLE cash_balances;
-DROP TABLE holdings;
-DROP TABLE portfolio_snapshots;
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE executions CASCADE CONSTRAINTS';         EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE cash_balances CASCADE CONSTRAINTS';       EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE holdings CASCADE CONSTRAINTS';            EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE portfolio_snapshots CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 
 -- ----------------------------------------
 -- 6. 체결
