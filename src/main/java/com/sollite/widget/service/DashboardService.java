@@ -30,7 +30,6 @@ import java.util.stream.IntStream;
 @RequiredArgsConstructor
 public class DashboardService {
 
-    private static final int MAX_PAGES = 5;
     private static final String STOCK_CHART_TYPE = "stock-chart";
     private static final String STOCK_NEWS_TYPE = "stock-news";
 
@@ -96,9 +95,6 @@ public class DashboardService {
         StockRankingItem topMarketCapStock = marketService.getTopMarketCapStock(request.theme());
 
         List<Dashboard> existing = dashboardRepository.findAllByUserIdWithWidgets(userId);
-        if (existing.size() >= MAX_PAGES) {
-            throw new BusinessException(WidgetErrorCode.PAGE_LIMIT_EXCEEDED);
-        }
 
         int[] stockIdx = {0};
         List<WidgetLayoutRequest> filledWidgets = request.widgets().stream()
