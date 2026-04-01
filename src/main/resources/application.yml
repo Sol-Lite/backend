@@ -135,7 +135,7 @@ ls:
     url: "https://openapi.ls-sec.co.kr:8080"
     appkey: ${LS_APPKEY}
     appsecret: ${LS_APPSECRET}
-    mac-address: ${LS_MAC_ADDRESS:}
+#    mac-address: ${LS_MAC_ADDRESS:}
   ws:
     url: wss://openapi.ls-sec.co.kr:9443/websocket
 ---
