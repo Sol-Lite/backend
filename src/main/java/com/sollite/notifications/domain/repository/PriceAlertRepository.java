@@ -53,7 +53,7 @@ public interface PriceAlertRepository extends JpaRepository<PriceAlert, Long> {
             @Param("todayStart") java.time.LocalDateTime todayStart);
 
     /** 알림 설정 임계값 변경 시 PERCENT 타입 활성 알림만 업데이트 */
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE PriceAlert p SET p.thresholdPercent = :threshold " +
            "WHERE p.userId = :userId AND p.activeYn = 'Y' AND p.alertType = 'PERCENT'")
     int updateThresholdByUserId(@Param("userId") Long userId, @Param("threshold") BigDecimal threshold);

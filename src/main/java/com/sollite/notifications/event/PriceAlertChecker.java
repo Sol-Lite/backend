@@ -119,14 +119,22 @@ public class PriceAlertChecker {
     /**
      * 종목의 최신 틱 이벤트를 꺼내 조건을 평가한다.
      * 처리 완료 후 새 틱이 도착해 있으면 즉시 재제출하여 최신 틱 한 번을 더 처리한다.
+     *
+     * [트랜잭션 분리 이유]
+     * @Async + @Transactional을 같은 메서드에 두면 finally 블록의 재제출 시점에
+     * 트랜잭션이 아직 미커밋 상태라 Thread 2가 같은 행의 FOR UPDATE를 즉시 시도하여
+     * Oracle 교착 상태(ORA-00060)가 발생한다.
+     * doCheckTransactional을 동기 호출로 분리하면 해당 메서드 반환 시점 = 커밋 완료이므로
+     * finally의 재제출은 항상 커밋 이후에 실행된다.
      */
     @Async("priceCheckExecutor")
-    @Transactional
     public void processLatest(String symbol) {
         try {
             PriceChangeEvent event = latestPending.remove(symbol);
             if (event == null) return;
-            doCheckPriceChange(event);
+            self.doCheckTransactional(event);
+        } catch (CannotAcquireLockException | UnexpectedRollbackException e) {
+            log.warn("[PRICE_ALERT] 락 충돌로 스킵 - symbol={}", symbol);
         } catch (Exception e) {
             log.error("[PRICE_ALERT] 가격 변동 처리 실패 - symbol={}, error={}",
                     symbol, e.getMessage(), e);
@@ -137,6 +145,20 @@ public class PriceAlertChecker {
                 self.processLatest(symbol);
             }
         }
+    }
+
+    /**
+     * 가격 변동 조건 평가 트랜잭션.
+     * processLatest에서 동기 호출 — 반환 시점이 곧 커밋 완료 시점이다.
+     * self.doCheckTransactional()로 호출해야 @Transactional 프록시가 적용된다.
+     *
+     * TODO: 교착 상태 발생 시 해당 틱이 유실될 수 있음 (latest-only 설계상 허용).
+     *       빈번한 교착 상태가 관찰되면 실패한 이벤트를 latestPending에 재삽입하여
+     *       다음 재제출 사이클에서 처리하는 방식으로 개선을 검토할 것.
+     */
+    @Transactional
+    public void doCheckTransactional(PriceChangeEvent event) {
+        doCheckPriceChange(event);
     }
 
     private void doCheckPriceChange(PriceChangeEvent event) {
