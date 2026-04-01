@@ -36,6 +36,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private final WebClient lsWebClient;
     private final LsTokenService tokenService;
     private final ObjectMapper objectMapper;
+    private final KisForeignMinuteChartService kisMinuteChartService;
     @Value("${ls.api.mac-address:}")
     private String configuredMacAddress;
     private static final String INITIAL_TR_CONT_KEY = "";
@@ -528,55 +529,12 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             sync = true
     )
     public ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin) {
-        return getMinuteChart(stockCode, exchcd, nmin, false);
+        return kisMinuteChartService.getMinuteChart(stockCode, exchcd, nmin, null);
     }
 
-    private ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin, boolean isRetry) {
-        try {
-            String normalizedStockCode = normalizeStockCode(stockCode);
-            String normalizedExchcd = normalizeExchangeCode(exchcd);
-            String keysymbol = buildKeysymbol(normalizedStockCode, normalizedExchcd);
-            List<LsG3203Res.G3203OutBlock1> rawList = fetchMinuteChartPages(
-                    stockCode,
-                    exchcd,
-                    normalizedExchcd,
-                    normalizedStockCode,
-                    keysymbol,
-                    nmin
-            );
-
-            ZoneId ny = ZoneId.of("America/New_York");
-            List<ForeignMinuteChartResponse.MinuteChartDataPoint> dataPoints = rawList.stream()
-                    .map(item -> new ForeignMinuteChartResponse.MinuteChartDataPoint(
-                            LocalDateTime.of(
-                                    LocalDate.parse(item.date(), DATE_FMT),
-                                    java.time.LocalTime.parse(item.loctime(), TIME_FMT)
-                            ).atZone(ny).toInstant().toEpochMilli(),
-                            parseDouble(item.open()),
-                            parseDouble(item.high()),
-                            parseDouble(item.low()),
-                            parseDouble(item.close()),
-                            parseLong(item.exevol()),
-                            parseLong(item.amount())
-                    ))
-                    .toList();
-
-            return new ForeignMinuteChartResponse(stockCode, nmin, dataPoints);
-
-        } catch (BusinessException e) {
-            throw e;
-        } catch (WebClientResponseException e) {
-            if (!isRetry && e.getStatusCode().value() == 401) {
-                log.warn("토큰 만료 감지 (401), 재발급 후 재시도: stockCode={}", stockCode);
-                tokenService.invalidateToken();
-                return getMinuteChart(stockCode, exchcd, nmin, true);
-            }
-            log.error("LS증권 API 호출 실패. HTTP 상태: {}, 응답: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
-        } catch (Exception e) {
-            log.error("해외주식 분차트 조회 중 예외 발생: stockCode={}", stockCode, e);
-            throw new BusinessException(ForeignStockErrorCode.FOREIGN_STOCK_API_ERROR);
-        }
+    @Override
+    public ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin, Integer limit) {
+        return kisMinuteChartService.getMinuteChart(stockCode, exchcd, nmin, limit);
     }
 
     private List<LsG3203Res.G3203OutBlock1> fetchMinuteChartPages(
@@ -585,7 +543,8 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             String normalizedExchcd,
             String normalizedStockCode,
             String keysymbol,
-            int nmin
+            int nmin,
+            Integer limit
     ) throws Exception {
         LocalDate today = LocalDate.now(ZoneId.of("America/New_York"));
         DayOfWeek dow = today.getDayOfWeek();
@@ -597,7 +556,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
         String ctsTime = "";
         String trContKey = INITIAL_TR_CONT_KEY;
         boolean continued = false;
-        int maxPoints = calculateMinuteChartTargetPoints(nmin);
+        int maxPoints = (limit != null && limit > 0) ? limit : calculateMinuteChartTargetPoints(nmin);
         int requestCount = 0;
 
         while (deduplicated.size() < maxPoints && requestCount < MAX_MINUTE_CHART_REQUESTS) {

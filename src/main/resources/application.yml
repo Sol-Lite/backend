@@ -1,6 +1,8 @@
 spring:
   application:
     name: sol-lite-backend
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
 
   # ── Oracle (JPA) ──
   datasource:
@@ -128,6 +130,13 @@ management:
   endpoint:
     health:
       show-details: never
+
+# ── Korea Investment Securities API ──
+kis:
+  api:
+    url: "https://openapi.koreainvestment.com:9443"
+    appkey: ${KIS_APPKEY}
+    appsecret: ${KIS_APPSECRET}
 
 # ── LS Securities API  & Websocket ──
 ls:

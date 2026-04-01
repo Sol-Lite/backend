@@ -65,7 +65,9 @@ public class CacheConfig {
                 Map.entry("foreign:tick-chart",     base.entryTtl(Duration.ofSeconds(30))),
                 Map.entry("foreign:minute-chart",   base.entryTtl(Duration.ofSeconds(30))),
                 Map.entry("foreign:advanced-chart", base.entryTtl(Duration.ofMinutes(5))),
-                Map.entry("foreign:info",           base.entryTtl(Duration.ofHours(24)))
+                Map.entry("foreign:info",           base.entryTtl(Duration.ofHours(24))),
+                // 해외주식 순위
+                Map.entry("foreign:ranking",        base.entryTtl(Duration.ofMinutes(1)))
         );
 
         return RedisCacheManager.builder(connectionFactory)

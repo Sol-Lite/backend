@@ -51,4 +51,7 @@ public class StockNewsDocument {
 
     @Field("published_at")
     private Date publishedAt;
+
+    @Field("fetched_at")
+    private Date fetchedAt;
 }

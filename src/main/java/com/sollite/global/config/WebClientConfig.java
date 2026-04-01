@@ -17,6 +17,15 @@ public class WebClientConfig {
     @Value("${ls.api.appsecret}")
     private String appSecret;
 
+    @Value("${kis.api.url}")
+    private String kisBaseUrl;
+
+    @Value("${kis.api.appkey}")
+    private String kisAppKey;
+
+    @Value("${kis.api.appsecret}")
+    private String kisAppSecret;
+
     @Bean
     public WebClient lsWebClient()
     {
@@ -24,6 +33,15 @@ public class WebClientConfig {
                 .baseUrl(baseUrl)
                 .defaultHeader("appkey", appKey)
                 .defaultHeader("appsecret", appSecret)
+                .build();
+    }
+
+    @Bean
+    public WebClient kisWebClient() {
+        return WebClient.builder()
+                .baseUrl(kisBaseUrl)
+                .defaultHeader("appkey", kisAppKey)
+                .defaultHeader("appsecret", kisAppSecret)
                 .build();
     }
 

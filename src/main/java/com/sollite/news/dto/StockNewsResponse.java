@@ -39,7 +39,7 @@ public record StockNewsResponse(
                 doc.getMarket(),
                 doc.getPublishedAt() != null
                         ? doc.getPublishedAt().toInstant()
-                                .atZone(ZoneId.of("Asia/Seoul"))
+                                .atZone(ZoneId.of("UTC"))
                                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
                         : null
         );
