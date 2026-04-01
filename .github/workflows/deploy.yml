@@ -1,0 +1,45 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - release
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Java 17 설정
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Gradle 빌드
+        run: ./gradlew bootJar -x test
+
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: 배포 패키지 S3 업로드
+        run: |
+          aws deploy push \
+            --application-name SolLite-Backend \
+            --s3-location s3://sollite-codedeploy-artifacts/deploy-${{ github.sha }}.zip \
+            --source .
+
+      - name: CodeDeploy 배포 시작
+        run: |
+          aws deploy create-deployment \
+            --application-name SolLite-Backend \
+            --deployment-group-name SolLite-Backend-DG \
+            --s3-location bucket=sollite-codedeploy-artifacts,key=deploy-${{ github.sha }}.zip,bundleType=zip \
+            --description "Release ${{ github.sha }}"
