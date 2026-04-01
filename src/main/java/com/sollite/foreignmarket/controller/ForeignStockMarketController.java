@@ -2,17 +2,32 @@ package com.sollite.foreignmarket.controller;
 
 import com.sollite.foreignmarket.dto.*;
 import com.sollite.foreignmarket.service.ForeignStockMarketService;
+import com.sollite.foreignmarket.service.KisForeignRankingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/market/foreign-stocks")
 @RequiredArgsConstructor
 public class ForeignStockMarketController {
     private final ForeignStockMarketService foreignStockMarketService;
+    private final KisForeignRankingService kisForeignRankingService;
+
+    /**
+     * 해외주식 순위 조회
+     * @param type trading-value(거래대금) | trading-volume(거래량) | rising(상승) | falling(하락) | market-cap(시가총액)
+     * @param exchange NAS | NYS | all
+     */
+    @GetMapping("/ranking")
+    public ResponseEntity<List<ForeignStockRankingItem>> getRanking(
+            @RequestParam(defaultValue = "trading-value") String type,
+            @RequestParam(defaultValue = "NAS") String exchange) {
+        return ResponseEntity.ok(kisForeignRankingService.getRanking(type, exchange));
+    }
 
     /**
      * g3101 - 해외주식 현재가 조회
@@ -101,8 +116,9 @@ public class ForeignStockMarketController {
     public ResponseEntity<ForeignMinuteChartResponse> getMinuteChart(
             @PathVariable String stockCode,
             @RequestParam String exchcd,
-            @RequestParam int nmin) {
-        ForeignMinuteChartResponse response = foreignStockMarketService.getMinuteChart(stockCode, exchcd, nmin);
+            @RequestParam int nmin,
+            @RequestParam(required = false) Integer limit) {
+        ForeignMinuteChartResponse response = foreignStockMarketService.getMinuteChart(stockCode, exchcd, nmin, limit);
         return ResponseEntity.ok(response);
     }
 

@@ -57,6 +57,8 @@ public interface ForeignStockMarketService {
      */
     ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin);
 
+    ForeignMinuteChartResponse getMinuteChart(String stockCode, String exchcd, int nmin, Integer limit);
+
     /**
      * g3204 - 해외주식 차트일주월년별 조회
      * @param stockCode 종목코드 (TSLA, NVDA 등)
