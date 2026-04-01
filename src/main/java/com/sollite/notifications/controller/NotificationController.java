@@ -56,6 +56,16 @@ public class NotificationController {
         return ResponseEntity.noContent().build();
     }
 
+    /** DELETE /api/notifications/{notificationId} — 단건 삭제 */
+    @DeleteMapping("/{notificationId}")
+    public ResponseEntity<Void> deleteNotification(
+            Authentication authentication,
+            @PathVariable Long notificationId) {
+        Long userId = AuthUtil.getUserId(authentication);
+        notificationService.deleteNotification(userId, notificationId);
+        return ResponseEntity.noContent().build();
+    }
+
     // ── 알림 설정 ─────────────────────────────────────────────────────────
 
     /** GET /api/notifications/settings — 알림 설정 조회 */

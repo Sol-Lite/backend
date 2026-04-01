@@ -51,6 +51,14 @@ public class NotificationService {
         notificationRepository.markAllAsRead(userId, LocalDateTime.now());
     }
 
+    @Transactional
+    public void deleteNotification(Long userId, Long notificationId) {
+        Notification notification = notificationRepository
+                .findByNotificationIdAndUserId(notificationId, userId)
+                .orElseThrow(() -> new BusinessException(NotificationErrorCode.NOTIFICATION_NOT_FOUND));
+        notificationRepository.delete(notification);
+    }
+
     /**
      * 알림 저장 + WebSocket 실시간 전송.
      * REQUIRES_NEW: PriceAlertChecker outer 트랜잭션과 격리 — save() 실패가 외부 트랜잭션을 오염시키지 않는다.
