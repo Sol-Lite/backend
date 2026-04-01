@@ -26,7 +26,7 @@ spring:
 
   data:
     mongodb:
-      uri: mongodb://solliteadmin:${MONGO_PASSWORD}@sollite-docdb.cluster-cliw86kamf7q.ap-northeast-2.docdb.amazonaws.com:27017/sollite?tls=true&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false
+      uri: mongodb://solliteadmin:${MONGO_PASSWORD}@sollite-docdb.cluster-cliw86kamf7q.ap-northeast-2.docdb.amazonaws.com:27017/sollite?tls=false&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false
     redis:
       host: sollite-redis.e48vdp.0001.apn2.cache.amazonaws.com
       port: 6379
