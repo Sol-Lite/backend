@@ -49,6 +49,7 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
     private static final int MINUTE_CHART_BUFFER_POINTS = 10;
     private static final int MAX_MINUTE_CHART_REQUESTS = 100;
     private static final String RATE_LIMIT_CODE = "IGW00201";
+    private static final String LS_TOKEN_INVALID_CODE = "IGW00121";
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HHmmss");
     @Value("${app.foreign.market.minute-chart.request-delay-ms:300}")
@@ -97,6 +98,11 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             LsG3101Res lsRes = objectMapper.readValue(raw, LsG3101Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rspCd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getCurrentPrice(stockCode, exchcd, true);
+                }
                 log.warn("LS API 해외주식 현재가 조회 실패: trCd=g3101, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
                         stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
                         lsRes != null ? lsRes.rspCd() : "NULL",
@@ -199,6 +205,11 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             LsG3106Res lsRes = objectMapper.readValue(raw, LsG3106Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rspCd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getOrderbook(stockCode, exchcd, true);
+                }
                 log.warn("LS API 해외주식 호가 조회 실패: trCd=g3106, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
                         stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
                         lsRes != null ? lsRes.rspCd() : "NULL",
@@ -295,6 +306,11 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             LsG3104Res lsRes = objectMapper.readValue(raw, LsG3104Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rspCd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getInfo(stockCode, exchcd, true);
+                }
                 log.warn("LS API 해외주식 종목정보 조회 실패: trCd=g3104, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
                         stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
                         lsRes != null ? lsRes.rspCd() : "NULL",
@@ -393,6 +409,11 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             LsG3103Res lsRes = objectMapper.readValue(raw, LsG3103Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rspCd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getChart(stockCode, exchcd, period, date, true);
+                }
                 log.warn("LS API 해외주식 차트 조회 실패: trCd=g3103, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
                         stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
                         lsRes != null ? lsRes.rspCd() : "NULL",
@@ -479,6 +500,11 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             LsG3202Res lsRes = objectMapper.readValue(raw, LsG3202Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rspCd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getTickChart(stockCode, exchcd, ncnt, true);
+                }
                 log.warn("LS API 해외주식 틱차트 조회 실패: trCd=g3202, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
                         stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
                         lsRes != null ? lsRes.rspCd() : "NULL",
@@ -592,6 +618,10 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             LsG3203Res lsRes = objectMapper.readValue(lsRawResponse.raw(), LsG3203Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
+                if (lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rspCd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 토큰 무효화: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                }
                 log.warn("LS API 해외주식 분차트 조회 실패: trCd=g3203, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
                         stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
                         lsRes != null ? lsRes.rspCd() : "NULL",
@@ -760,6 +790,11 @@ class LsForeignStockMarketServiceImpl implements ForeignStockMarketService {
             LsG3204Res lsRes = objectMapper.readValue(raw, LsG3204Res.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rspCd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rspCd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getAdvancedChart(stockCode, exchcd, period, startDate, endDate, true);
+                }
                 log.warn("LS API 해외주식 고급차트 조회 실패: trCd=g3204, stockCode={}, originalExchcd={}, normalizedExchcd={}, normalizedStockCode={}, keysymbol={}, rspCd={}, msg={}, raw={}",
                         stockCode, exchcd, normalizedExchcd, normalizedStockCode, keysymbol,
                         lsRes != null ? lsRes.rspCd() : "NULL",

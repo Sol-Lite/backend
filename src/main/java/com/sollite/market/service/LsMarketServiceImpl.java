@@ -68,6 +68,7 @@ class LsMarketServiceImpl implements MarketService {
     private final MarketDailyCandleRepository marketDailyCandleRepository;
     private final MarketMinuteCandleRepository marketMinuteCandleRepository;
     private static final String DUMMY_MAC = "00:00:00:00:00:00";
+    private static final String LS_TOKEN_INVALID_CODE = "IGW00121";
     private static final String INTEGRATED_EXCHANGE_SCOPE = "U";
     private static final String SIGN_UNCHANGED = "3"; // LS API sign 코드: 보합
     private final Map<String, MinuteGapCacheEntry> minuteGapCache = new ConcurrentHashMap<>();
@@ -132,6 +133,11 @@ class LsMarketServiceImpl implements MarketService {
             LsCurrentPriceRes lsRes = objectMapper.readValue(raw, LsCurrentPriceRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getCurrentPrice(stockCode, true);
+                }
                 log.warn("LS API 시세 조회 실패: stockCode={}, msg={}", stockCode,
                         lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
@@ -196,6 +202,11 @@ class LsMarketServiceImpl implements MarketService {
             LsDailyPriceRes lsRes = objectMapper.readValue(raw, LsDailyPriceRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getDailyPriceFromLs(stockCode, date, true);
+                }
                 log.warn("LS API 일봉 조회 실패: stockCode={}, msg={}", stockCode,
                         lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
@@ -305,6 +316,11 @@ class LsMarketServiceImpl implements MarketService {
             LsChartRes lsRes = objectMapper.readValue(raw, LsChartRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getChartFromLs(stockCode, period, startDate, endDate, true);
+                }
                 log.warn("LS API 차트 조회 실패: stockCode={}, msg={}", stockCode,
                         lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
@@ -383,6 +399,11 @@ class LsMarketServiceImpl implements MarketService {
             LsMinuteChartRes lsRes = objectMapper.readValue(raw, LsMinuteChartRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getMinuteChartFromLs(stockCode, ncnt, true);
+                }
                 log.warn("LS API 분봉 조회 실패: stockCode={}, msg={}", stockCode, lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
             }
@@ -851,6 +872,11 @@ class LsMarketServiceImpl implements MarketService {
 
             LsChartRes lsRes = objectMapper.readValue(raw, LsChartRes.class);
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getChartHistoryFromLs(stockCode, period, before, limit, true);
+                }
                 log.warn("LS API 차트 history 조회 실패: stockCode={}, msg={}", stockCode,
                         lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
@@ -930,6 +956,11 @@ class LsMarketServiceImpl implements MarketService {
 
             LsMinuteChartRes lsRes = objectMapper.readValue(raw, LsMinuteChartRes.class);
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getMinuteChartHistoryFromLs(stockCode, ncnt, before, limit, true);
+                }
                 log.warn("LS API 분봉 history 조회 실패: stockCode={}, msg={}", stockCode,
                         lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
@@ -1013,6 +1044,11 @@ class LsMarketServiceImpl implements MarketService {
             LsFinanceRes lsRes = objectMapper.readValue(raw, LsFinanceRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getFinance(stockCode, true);
+                }
                 log.warn("LS API 재무 요약 조회 실패: stockCode={}, msg={}", stockCode, lsRes!= null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
             }
@@ -1080,6 +1116,11 @@ class LsMarketServiceImpl implements MarketService {
             LsOpinionRes lsRes = objectMapper.readValue(raw, LsOpinionRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getOpinion(stockCode, true);
+                }
                 log.warn("LS API 투자의견 조회 실패: stockCode={}, msg={}", stockCode, lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
             }
@@ -1145,6 +1186,11 @@ class LsMarketServiceImpl implements MarketService {
             LsInvestorRes lsRes = objectMapper.readValue(raw, LsInvestorRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getInvestor(stockCode, true);
+                }
                 log.warn("LS API 투자자 동향 조회 실패: stockCode={}, msg={}", stockCode, lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
             }
@@ -1518,6 +1564,11 @@ class LsMarketServiceImpl implements MarketService {
             LsOrderbookUnifiedRes lsRes = objectMapper.readValue(raw, LsOrderbookUnifiedRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getOrderbook(stockCode, true);
+                }
                 log.warn("LS API 호가 조회 실패: stockCode={}, msg={}", stockCode,
                         lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
@@ -1584,6 +1635,11 @@ class LsMarketServiceImpl implements MarketService {
             log.debug("LS t1102 raw (info): {}", raw1102);
             LsCurrentPriceRes res1102 = objectMapper.readValue(raw1102, LsCurrentPriceRes.class);
             if (res1102 == null || !"00000".equals(res1102.rsp_cd())) {
+                if (!isRetry && res1102 != null && LS_TOKEN_INVALID_CODE.equals(res1102.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getStockInfo(stockCode, true);
+                }
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
             }
 
@@ -1606,6 +1662,11 @@ class LsMarketServiceImpl implements MarketService {
             log.debug("LS t3320 raw: {}", raw3320);
             LsT3320Res res3320 = objectMapper.readValue(raw3320, LsT3320Res.class);
             if (res3320 == null || !"00000".equals(res3320.rsp_cd())) {
+                if (!isRetry && res3320 != null && LS_TOKEN_INVALID_CODE.equals(res3320.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: stockCode={}", stockCode);
+                    tokenService.invalidateToken();
+                    return getStockInfo(stockCode, true);
+                }
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
             }
 
@@ -1674,6 +1735,11 @@ class LsMarketServiceImpl implements MarketService {
             LsIndexChartRes lsRes = objectMapper.readValue(raw, LsIndexChartRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: indexCode={}", indexCode);
+                    tokenService.invalidateToken();
+                    return getIndexChartFromLs(indexCode, count, true);
+                }
                 log.warn("LS API 업종 차트 조회 실패: indexCode={}, msg={}", indexCode,
                         lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
@@ -1750,6 +1816,11 @@ class LsMarketServiceImpl implements MarketService {
             LsIndexMinuteChartRes lsRes = objectMapper.readValue(raw, LsIndexMinuteChartRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: indexCode={}", indexCode);
+                    tokenService.invalidateToken();
+                    return getIndexMinuteChartFromLs(indexCode, ncnt, count, true);
+                }
                 log.warn("LS API 업종 분봉 조회 실패: indexCode={}, msg={}", indexCode,
                         lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
@@ -1821,6 +1892,11 @@ class LsMarketServiceImpl implements MarketService {
             LsOverseasIndexChartRes lsRes = objectMapper.readValue(raw, LsOverseasIndexChartRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: symbol={}", symbol);
+                    tokenService.invalidateToken();
+                    return getOverseasIndexChartFromLs(symbol, count, true);
+                }
                 log.warn("LS API 해외 지수 차트 조회 실패: symbol={}, msg={}", symbol,
                         lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
@@ -1889,6 +1965,11 @@ class LsMarketServiceImpl implements MarketService {
             LsOverseasIndexChartRes lsRes = objectMapper.readValue(raw, LsOverseasIndexChartRes.class);
 
             if (lsRes == null || !"00000".equals(lsRes.rsp_cd())) {
+                if (!isRetry && lsRes != null && LS_TOKEN_INVALID_CODE.equals(lsRes.rsp_cd())) {
+                    log.warn("LS 토큰 만료(IGW00121) 감지, 재발급 후 재시도: symbol={}", symbol);
+                    tokenService.invalidateToken();
+                    return getOverseasIndexMinuteChartFromLs(symbol, ncnt, count, true);
+                }
                 log.warn("LS API 해외 지수 분봉 조회 실패: symbol={}, msg={}", symbol,
                         lsRes != null ? lsRes.rsp_msg() : "NULL");
                 throw new BusinessException(MarketErrorCode.MARKET_API_ERROR);
