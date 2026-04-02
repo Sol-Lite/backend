@@ -37,7 +37,7 @@ import java.util.Set;
 @Transactional(readOnly = true)
 public class WatchlistService {
 
-    private static final int WATCHLIST_MAX_SIZE = 50;
+    private static final int WATCHLIST_MAX_SIZE = 6;
     private static final Set<String> FOREIGN_MARKET_TYPES = Set.of("NASDAQ", "NYSE", "AMEX");
 
     private final WatchlistItemRepository watchlistItemRepository;
