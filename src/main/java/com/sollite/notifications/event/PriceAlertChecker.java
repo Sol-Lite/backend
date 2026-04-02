@@ -7,6 +7,7 @@ import com.sollite.notifications.domain.enums.NotificationType;
 import com.sollite.notifications.domain.repository.PriceAlertRepository;
 import com.sollite.notifications.service.ActivePriceAlertRegistry;
 import com.sollite.notifications.service.NotificationSettingService;
+import com.sollite.websocket.service.LsBrokerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,8 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -38,8 +41,8 @@ import java.util.stream.Collectors;
  * 이로써 틱이 빠른 종목에서 큐 적재량을 종목 수 기준으로 억제한다.
  *
  * [동시성]
- * existsActiveByInstrumentIds(락 없이 빠른 사전 확인) →
- * findActiveByInstrumentIdsWithLock(PESSIMISTIC_WRITE으로 중복 트리거 방지)
+ * existsUntriggeredTodayByInstrumentIds(락 없이 빠른 사전 확인) →
+ * findUntriggeredTodayByInstrumentIdsWithLock(PESSIMISTIC_WRITE으로 중복 트리거 방지)
  */
 @Slf4j
 @Component
@@ -51,6 +54,7 @@ public class PriceAlertChecker {
     private final ApplicationEventPublisher eventPublisher;
     private final NotificationSettingService notificationSettingService;
     private final ActivePriceAlertRegistry activePriceAlertRegistry;
+    private final LsBrokerService lsBrokerService;
 
     /**
      * 종목별 최신 틱 이벤트 버퍼.
@@ -89,14 +93,17 @@ public class PriceAlertChecker {
         // instrumentId → 활성 알림 수
         Map<Long, Long> countByInstrumentId = new HashMap<>();
         for (Object[] row : rows) {
-            countByInstrumentId.put((Long) row[0], (Long) row[1]);
+            countByInstrumentId.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
         }
+
+        activePriceAlertRegistry.clear();
 
         instrumentRepository.findAllById(countByInstrumentId.keySet()).forEach(instrument -> {
             long count = countByInstrumentId.get(instrument.getInstrumentId());
             for (long i = 0; i < count; i++) {
                 activePriceAlertRegistry.register(instrument.getStockCode());
             }
+            lsBrokerService.subscribeForPriceAlert(instrument.getStockCode(), instrument.getMarketType());
         });
 
         log.info("[PRICE_ALERT] 가격 알림 레지스트리 복구 완료 — 종목 수={}, 총 알림 수={}",
@@ -112,7 +119,12 @@ public class PriceAlertChecker {
     public void onPriceChange(PriceChangeEvent event) {
         latestPending.put(event.symbol(), event);
         if (activeSymbols.add(event.symbol())) {
-            self.processLatest(event.symbol());
+            try {
+                self.processLatest(event.symbol());
+            } catch (Exception e) {
+                activeSymbols.remove(event.symbol());
+                log.warn("[PRICE_ALERT] processLatest 최초 제출 실패 - symbol={}, error={}", event.symbol(), e.getMessage());
+            }
         }
     }
 
@@ -142,7 +154,14 @@ public class PriceAlertChecker {
             activeSymbols.remove(symbol);
             // 처리 중 새 틱이 도착했으면 재제출
             if (latestPending.containsKey(symbol) && activeSymbols.add(symbol)) {
-                self.processLatest(symbol);
+                try {
+                    self.processLatest(symbol);
+                } catch (Exception e) {
+                    // executor 포화 등으로 제출 실패 시 activeSymbols에서 제거해야
+                    // 다음 onPriceChange 호출 때 재시도할 수 있다.
+                    activeSymbols.remove(symbol);
+                    log.warn("[PRICE_ALERT] processLatest 재제출 실패 - symbol={}, error={}", symbol, e.getMessage());
+                }
             }
         }
     }
@@ -176,9 +195,10 @@ public class PriceAlertChecker {
         LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIDNIGHT);
         if (!priceAlertRepository.existsUntriggeredTodayByInstrumentIds(instrumentIds, todayStart)) return;
 
-        List<PriceAlert> alerts = priceAlertRepository.findActiveByInstrumentIdsWithLock(instrumentIds);
+        List<PriceAlert> alerts = priceAlertRepository.findUntriggeredTodayByInstrumentIdsWithLock(instrumentIds, todayStart);
         if (alerts.isEmpty()) return;
 
+        Map<Long, Boolean> enabledCache = new HashMap<>();
         for (PriceAlert alert : alerts) {
             String stockName = stockNameMap.get(alert.getInstrumentId());
             if (stockName == null) {
@@ -186,22 +206,34 @@ public class PriceAlertChecker {
                         alert.getPriceAlertId(), alert.getInstrumentId());
                 continue;
             }
-            processAlert(alert, event, stockName);
+            processAlert(alert, event, stockName, enabledCache);
         }
     }
 
-    private void processAlert(PriceAlert alert, PriceChangeEvent event, String stockName) {
+    private void processAlert(PriceAlert alert,
+                              PriceChangeEvent event,
+                              String stockName,
+                              Map<Long, Boolean> enabledCache) {
         try {
             if (!isTriggerConditionMet(alert, event)) return;
             if (alert.isTriggeredToday()) return;
 
-            if (!notificationSettingService.isEnabled(alert.getUserId(), NotificationType.PRICE_ALERT)) {
+            boolean enabled = enabledCache.computeIfAbsent(
+                    alert.getUserId(),
+                    userId -> notificationSettingService.isEnabled(userId, NotificationType.PRICE_ALERT)
+            );
+            if (!enabled) {
                 log.debug("[PRICE_ALERT] 가격 알림 비활성화 - userId={}", alert.getUserId());
                 return;
             }
 
             BigDecimal changeRate = event.changeRate();
-            String direction = (changeRate != null && changeRate.compareTo(BigDecimal.ZERO) > 0) ? "상승" : "하락";
+            String direction;
+            if (changeRate == null || changeRate.compareTo(BigDecimal.ZERO) == 0) {
+                direction = "보합";
+            } else {
+                direction = changeRate.compareTo(BigDecimal.ZERO) > 0 ? "상승" : "하락";
+            }
             String changeRateStr = changeRate != null
                     ? String.format("%.2f%%", changeRate.abs()) : "";
 
@@ -256,7 +288,7 @@ public class PriceAlertChecker {
 
     private String buildTitle(PriceAlert alert, String stockName, String direction, String changeRateStr) {
         if (alert.getAlertType() == AlertType.PERCENT) {
-            return String.format("%s 전일대비 %s %s", stockName, direction, changeRateStr);
+            return String.format("%s 전일대비 %s %s", stockName, changeRateStr, direction);
         }
         return String.format("%s 목표가 도달", stockName);
     }
@@ -264,8 +296,8 @@ public class PriceAlertChecker {
     private String buildMessage(PriceAlert alert, PriceChangeEvent event,
                                 String stockName, String direction, String changeRateStr) {
         if (alert.getAlertType() == AlertType.PERCENT) {
-            return String.format("%s(%s) 전일대비 %s %s 변동했습니다.",
-                    stockName, event.symbol(), direction, changeRateStr);
+            return String.format("%s(%s) 전일 대비 %s %s했습니다.",
+                    stockName, event.symbol(), changeRateStr, direction);
         }
         return String.format("%s(%s) 목표가 %s에 도달했습니다. 현재가: %s",
                 stockName, event.symbol(),

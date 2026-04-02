@@ -60,8 +60,8 @@ public class LsBrokerService {
     private final ReactorNettyWebSocketClient lsClient = new ReactorNettyWebSocketClient();
 
     // LS 연결 상태
-    private Disposable lsConnection;
-    private Sinks.Many<String> outboundSink;
+    private volatile Disposable lsConnection;
+    private volatile Sinks.Many<String> outboundSink;
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean connecting = new AtomicBoolean(false);
     private final AtomicBoolean reconnectScheduled = new AtomicBoolean(false);
@@ -71,6 +71,8 @@ public class LsBrokerService {
     private final Map<String, AtomicInteger> subscriberCount = new ConcurrentHashMap<>();
     // 현재 LS에 등록된 종목: "UH1:005930"
     private final Set<String> activeSubscriptions = ConcurrentHashMap.newKeySet();
+    // 가격 알림 경로로 구독된 종목: "US3:005930". subscribeForPriceAlert 멱등성 보장용.
+    private final Set<String> priceAlertSubscribedKeys = ConcurrentHashMap.newKeySet();
     // 토픽별 마지막 수신 값: "/topic/stock/trade/005930" → JSON
     private final Map<String, String> lastValues = new ConcurrentHashMap<>();
 
@@ -158,6 +160,43 @@ public class LsBrokerService {
             // 체결/차트가 중복 반영될 수 있다. 스냅샷은 REST/초기 조회 경로에 맡긴다.
             log.info("[SUBSCRIBE] lastValue 보유 확인: topic={}, 신규 실시간 수신 대기", topicPrefix + key);
         }
+    }
+
+    /**
+     * 가격 알림용 종목 구독. marketType → trCd 변환 후 subscribe() 위임.
+     * 서버 기동 시 레지스트리 복구, 관심종목 추가 시 호출된다.
+     * priceAlertSubscribedKeys로 멱등성 보장 — recoverRegistry 재호출 시 subscriberCount 중복 증가 방지.
+     */
+    public void subscribeForPriceAlert(String stockCode, String marketType) {
+        String trCd = resolvePriceAlertTrCd(marketType);
+        if (trCd == null) return;
+        if (priceAlertSubscribedKeys.add(trCd + ":" + stockCode)) {
+            subscribe(trCd, stockCode);
+        }
+    }
+
+    /**
+     * 가격 알림용 종목 구독 해제. marketType → trCd 변환 후 unsubscribe() 위임.
+     * 관심종목 삭제 시 호출된다.
+     * priceAlertSubscribedKeys에 등록된 경우에만 unsubscribe() 호출하여 카운터 오염 방지.
+     */
+    public void unsubscribeForPriceAlert(String stockCode, String marketType) {
+        String trCd = resolvePriceAlertTrCd(marketType);
+        if (trCd == null) return;
+        if (priceAlertSubscribedKeys.remove(trCd + ":" + stockCode)) {
+            unsubscribe(trCd, stockCode);
+        }
+    }
+
+    private String resolvePriceAlertTrCd(String marketType) {
+        return switch (marketType) {
+            case "KOSPI", "KOSDAQ" -> "US3";
+            case "NASDAQ", "NYSE", "AMEX" -> "GSC";
+            default -> {
+                log.warn("[PRICE_ALERT] 알 수 없는 marketType — LS 구독 스킵: {}", marketType);
+                yield null;
+            }
+        };
     }
 
     /**
@@ -356,24 +395,23 @@ public class LsBrokerService {
                 safeSnapshotSet(CURRENCY_SNAPSHOT_PREFIX + topic, bodyJson, CURRENCY_SNAPSHOT_TTL);
             }
 
-            // 체결 틱(US3/GSC)이고 대기 LIMIT 주문이 있는 종목일 때만 주문 매칭 이벤트 발행
-            if (("US3".equals(trCd) || "GSC".equals(trCd))
-                    && activeOrderRegistry.hasActiveOrders(trCd, symbol)) {
-                java.math.BigDecimal tickPrice = extractTradePrice(trCd, body);
-                if (tickPrice != null) {
-                    applicationEventPublisher.publishEvent(
-                            new MarketTickEvent(symbol, tickPrice, trCd, java.time.Instant.now()));
-                }
-            }
-
-            // 체결 틱(US3/GSC)이고 활성 가격 알림이 있는 종목일 때만 가격 변동 이벤트 발행
-            if (("US3".equals(trCd) || "GSC".equals(trCd))
-                    && activePriceAlertRegistry.hasActiveAlerts(symbol)) {
-                java.math.BigDecimal tickPrice = extractTradePrice(trCd, body);
-                if (tickPrice != null) {
-                    applicationEventPublisher.publishEvent(
-                            new PriceChangeEvent(symbol, tickPrice, extractChangeRate(body),
-                                    trCd, java.time.Instant.now()));
+            // 체결 틱(US3/GSC): 주문 매칭 → 가격 알림 순으로 발행 (주문 우선)
+            if ("US3".equals(trCd) || "GSC".equals(trCd)) {
+                boolean hasOrder = activeOrderRegistry.hasActiveOrders(trCd, symbol);
+                boolean hasAlert = activePriceAlertRegistry.hasActiveAlerts(symbol);
+                if (hasOrder || hasAlert) {
+                    java.math.BigDecimal tickPrice = extractTradePrice(trCd, body);
+                    if (tickPrice != null) {
+                        if (hasOrder) {
+                            applicationEventPublisher.publishEvent(
+                                    new MarketTickEvent(symbol, tickPrice, trCd, java.time.Instant.now()));
+                        }
+                        if (hasAlert) {
+                            applicationEventPublisher.publishEvent(
+                                    new PriceChangeEvent(symbol, tickPrice, extractChangeRate(body),
+                                            trCd, java.time.Instant.now()));
+                        }
+                    }
                 }
             }
 
@@ -385,8 +423,8 @@ public class LsBrokerService {
 
     private java.math.BigDecimal extractChangeRate(JsonNode body) {
         try {
-            if (body.has("diff")) {
-                String raw = body.get("diff").asText().replace(",", "").trim();
+            if (body.has("drate")) {
+                String raw = body.get("drate").asText().replace(",", "").trim();
                 if (!raw.isEmpty()) {
                     return new java.math.BigDecimal(raw);
                 }

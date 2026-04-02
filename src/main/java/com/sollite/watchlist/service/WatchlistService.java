@@ -14,7 +14,7 @@ import com.sollite.notifications.domain.enums.AlertDirection;
 import com.sollite.notifications.domain.enums.AlertType;
 import com.sollite.notifications.domain.repository.NotificationSettingRepository;
 import com.sollite.notifications.domain.repository.PriceAlertRepository;
-import com.sollite.notifications.service.ActivePriceAlertRegistry;
+import com.sollite.notifications.service.PriceAlertSubscriptionManager;
 import com.sollite.watchlist.domain.entity.WatchlistItem;
 import com.sollite.watchlist.domain.repository.WatchlistItemRepository;
 import com.sollite.watchlist.dto.WatchlistAddRequest;
@@ -48,7 +48,7 @@ public class WatchlistService {
     private final ObjectMapper objectMapper;
     private final PriceAlertRepository priceAlertRepository;
     private final NotificationSettingRepository notificationSettingRepository;
-    private final ActivePriceAlertRegistry activePriceAlertRegistry;
+    private final PriceAlertSubscriptionManager priceAlertSubscriptionManager;
 
     @Transactional(readOnly = true)
     public List<WatchlistItemResponse> getWatchlist(Long userId) {
@@ -132,7 +132,7 @@ public class WatchlistService {
                 .thresholdPercent(threshold)
                 .direction(AlertDirection.BOTH)
                 .build());
-        activePriceAlertRegistry.register(instrument.getStockCode());
+        priceAlertSubscriptionManager.activate(instrument.getStockCode(), instrument.getMarketType());
     }
 
     @Transactional
@@ -149,7 +149,7 @@ public class WatchlistService {
 
         // 관심종목 삭제 시 연관 가격 알림 제거 및 레지스트리 갱신
         priceAlertRepository.deleteByUserIdAndInstrumentId(userId, instrument.getInstrumentId());
-        activePriceAlertRegistry.unregister(stockCode);
+        priceAlertSubscriptionManager.deactivate(stockCode, instrument.getMarketType());
     }
 
     @Transactional

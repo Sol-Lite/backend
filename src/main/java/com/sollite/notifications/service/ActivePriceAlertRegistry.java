@@ -35,4 +35,9 @@ public class ActivePriceAlertRegistry {
         AtomicInteger cnt = counts.get(stockCode);
         return cnt != null && cnt.get() > 0;
     }
+
+    /** 서버 기동 시 레지스트리 복구 전 전체 초기화용 */
+    public void clear() {
+        counts.clear();
+    }
 }

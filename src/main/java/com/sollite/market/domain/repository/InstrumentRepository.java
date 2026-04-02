@@ -113,4 +113,5 @@ public interface InstrumentRepository extends JpaRepository<Instrument, Long> {
             ORDER BY i.instrumentId ASC
             """)
     List<Instrument> findActiveByStockCode(@Param("stockCode") String stockCode);
+
 }

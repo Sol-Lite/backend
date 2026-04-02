@@ -15,15 +15,14 @@ public interface PriceAlertRepository extends JpaRepository<PriceAlert, Long> {
 
     /**
      * 가격 변동 체크 시 사용. 비관적 락으로 동시 트리거 방지.
-     * 호출 전 existsActiveByInstrumentIds()로 사전 확인 후 호출할 것.
+     * 호출 전 existsUntriggeredTodayByInstrumentIds()로 사전 확인 후 호출할 것.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT p FROM PriceAlert p WHERE p.instrumentId IN :instrumentIds AND p.activeYn = 'Y'")
-    List<PriceAlert> findActiveByInstrumentIdsWithLock(@Param("instrumentIds") List<Long> instrumentIds);
-
-    /** 활성 알림 존재 여부 사전 확인 (락 없이 빠르게 조회) */
-    @Query("SELECT COUNT(p) > 0 FROM PriceAlert p WHERE p.instrumentId IN :instrumentIds AND p.activeYn = 'Y'")
-    boolean existsActiveByInstrumentIds(@Param("instrumentIds") List<Long> instrumentIds);
+    @Query("SELECT p FROM PriceAlert p WHERE p.instrumentId IN :instrumentIds " +
+           "AND p.activeYn = 'Y' AND (p.triggeredAt IS NULL OR p.triggeredAt < :todayStart)")
+    List<PriceAlert> findUntriggeredTodayByInstrumentIdsWithLock(
+            @Param("instrumentIds") List<Long> instrumentIds,
+            @Param("todayStart") java.time.LocalDateTime todayStart);
 
     List<PriceAlert> findByUserIdOrderByCreatedAtDesc(Long userId);
 
