@@ -14,6 +14,6 @@ public interface DashboardRepository extends JpaRepository<Dashboard, Long> {
     List<Dashboard> findAllByUserIdWithWidgets(@Param("userId") Long userId);
 
     @Modifying(clearAutomatically = true)
-    @Query("DELETE FROM Dashboard d WHERE d.userId = :userId")
+    @Query(value = "DELETE FROM dashboards WHERE user_id = :userId", nativeQuery = true)
     void deleteAllByUserId(@Param("userId") Long userId);
 }
