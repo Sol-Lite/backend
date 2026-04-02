@@ -37,6 +37,7 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setRejectedExecutionHandler((r, e) -> {
             log.warn("[PRICE_CHECK] 스레드풀 큐 포화로 가격 체크 이벤트 폐기됨 - activeThreads={}, queueSize={}",
                     e.getActiveCount(), e.getQueue().size());
+            // 예외는 제출 스레드(onPriceChange/processLatest)의 try-catch로 전파됨
             throw new RejectedExecutionException("priceCheckExecutor 포화 - queueSize=" + e.getQueue().size());
         });
         executor.initialize();

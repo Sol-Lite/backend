@@ -53,7 +53,6 @@ public class PriceAlertSubscriptionManager {
             activePriceAlertRegistry.unregister(stockCode);
             log.error("[PRICE_ALERT_SUB] activate 실패 — registry 롤백 완료. stockCode={}, error={}",
                     stockCode, e.getMessage(), e);
-            return;
         }
         log.info("[PRICE_ALERT_SUB] activate - stockCode={}, marketType={}", stockCode, marketType);
     }
@@ -66,7 +65,6 @@ public class PriceAlertSubscriptionManager {
             // unregister는 이미 완료. LS가 계속 틱을 보내더라도 hasActiveAlerts() = false이므로 이벤트 미발행.
             log.error("[PRICE_ALERT_SUB] deactivate 중 LS 구독 해제 실패 — stockCode={}, error={}",
                     stockCode, e.getMessage(), e);
-            return;
         }
         log.info("[PRICE_ALERT_SUB] deactivate - stockCode={}, marketType={}", stockCode, marketType);
     }
