@@ -32,6 +32,7 @@ public class DashboardService {
 
     private static final String STOCK_CHART_TYPE = "stock-chart";
     private static final String STOCK_NEWS_TYPE = "stock-news";
+    private static final String PRESET_RANKING_TYPE = "market-cap";
 
     private final DashboardRepository dashboardRepository;
     private final MarketService marketService;
@@ -90,8 +91,8 @@ public class DashboardService {
 
     @Transactional
     public List<DashboardPageResponse> applyPreset(Long userId, PresetApplyRequest request) {
-        // getThemeRanking은 @Cacheable 처리되어 있어 캐시 히트 시 즉시 반환됨
-        List<StockRankingItem> ranking = marketService.getThemeRanking(request.theme(), "trading-value");
+        // 프리셋 섹터 선택 UI는 시가총액 기준 상위 종목을 기대하므로 동일 기준으로 채운다.
+        List<StockRankingItem> ranking = marketService.getThemeRanking(request.theme(), PRESET_RANKING_TYPE);
         StockRankingItem topMarketCapStock = marketService.getTopMarketCapStock(request.theme());
 
         List<Dashboard> existing = dashboardRepository.findAllByUserIdWithWidgets(userId);

@@ -1296,7 +1296,7 @@ class LsMarketServiceImpl implements MarketService {
             for (Instrument inst : unrankedInstruments) {
                 filtered.add(new StockRankingItem(
                         0, inst.getStockCode(), inst.getMarketType(), inst.getStockName(),
-                        0L, SIGN_UNCHANGED, 0L, 0.0, 0L, 0L, 0L, null,
+                        0L, SIGN_UNCHANGED, 0L, 0.0, 0L, 0L, inst.getMarketCap(), null,
                         null, null, null, null, null, null, null, null, null, null
                 ));
             }
