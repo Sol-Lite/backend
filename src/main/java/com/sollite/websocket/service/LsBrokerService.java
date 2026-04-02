@@ -408,7 +408,7 @@ public class LsBrokerService {
                         }
                         if (hasAlert) {
                             applicationEventPublisher.publishEvent(
-                                    new PriceChangeEvent(symbol, tickPrice, extractChangeRate(body),
+                                    new PriceChangeEvent(symbol, tickPrice, extractChangeRate(trCd, body),
                                             trCd, java.time.Instant.now()));
                         }
                     }
@@ -421,16 +421,23 @@ public class LsBrokerService {
         }
     }
 
-    private java.math.BigDecimal extractChangeRate(JsonNode body) {
+    /**
+     * 등락율 추출 (TR별 필드명이 다름)
+     * US3(국내체결): drate = 등락율
+     * GSC(해외체결): rate = 등락율 (diff는 전일대비 금액)
+     */
+    private java.math.BigDecimal extractChangeRate(String trCd, JsonNode body) {
+        // US3: drate, GSC: rate
+        String fieldName = "US3".equals(trCd) ? "drate" : "rate";
         try {
-            if (body.has("drate")) {
-                String raw = body.get("drate").asText().replace(",", "").trim();
+            if (body.has(fieldName)) {
+                String raw = body.get(fieldName).asText().replace(",", "").trim();
                 if (!raw.isEmpty()) {
                     return new java.math.BigDecimal(raw);
                 }
             }
         } catch (NumberFormatException e) {
-            log.warn("[LS-MSG] 등락률 파싱 실패: body={}", body);
+            log.warn("[LS-MSG] 등락률 파싱 실패: trCd={}, body={}", trCd, body);
         }
         return null;
     }
