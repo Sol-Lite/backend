@@ -20,17 +20,7 @@ public record NewsResponse(
     private static final int PREVIEW_LENGTH = 120;
 
     public static NewsResponse from(NewsDocument doc) {
-        NewsDocument.Summary summary = doc.getSummary();
-
-        String oneLineSummary = null;
-        List<String> marketEvents = List.of();
-        String marketSentiment = null;
-
-        if (summary != null) {
-            oneLineSummary  = summary.getOneLineSummary();
-            marketSentiment = summary.getMarketSentiment();
-            marketEvents    = summary.getMarketEvent() != null ? summary.getMarketEvent() : List.of();
-        }
+        NewsSummaryParser.ParsedSummary summary = NewsSummaryParser.parse(doc.getSummary());
 
         String contentPreview = null;
         if (doc.getContent() != null) {
@@ -43,9 +33,9 @@ public record NewsResponse(
         return new NewsResponse(
                 doc.getNewsId(),
                 doc.getTitle(),
-                oneLineSummary,
-                marketEvents,
-                marketSentiment,
+                summary.oneLineSummary(),
+                summary.marketEvents(),
+                summary.marketSentiment(),
                 doc.getSource(),
                 doc.getStockIndex(),
                 doc.getPublishedAt() != null

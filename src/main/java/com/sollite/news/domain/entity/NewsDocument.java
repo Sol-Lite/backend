@@ -7,8 +7,6 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.util.Date;
-import java.util.List;
-import java.util.Map;
 
 @Getter
 @Document(collection = "news")
@@ -25,7 +23,11 @@ public class NewsDocument {
 
     private String content;
 
-    private Summary summary;
+    /**
+     * 국내/해외 시황 summary 스키마가 완전히 동일하지 않아 raw object로 받습니다.
+     * DTO 계층에서 필요한 필드(one_line_summary, market_event, market_sentiment)만 안전하게 추출합니다.
+     */
+    private Object summary;
 
     private String source;
 
@@ -34,22 +36,4 @@ public class NewsDocument {
 
     @Field("published_at")
     private Date publishedAt;
-
-    @Getter
-    public static class Summary {
-        private String date;
-
-        @Field("market_event")
-        private List<String> marketEvent;
-
-        @Field("market_sentiment")
-        private String marketSentiment;
-
-        @Field("one_line_summary")
-        private String oneLineSummary;
-
-        private Map<String, List<String>> sectors;
-
-        private Map<String, Map<String, List<String>>> stocks;
-    }
 }

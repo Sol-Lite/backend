@@ -18,25 +18,15 @@ public record NewsDetailResponse(
         String publishedAt
 ) {
     public static NewsDetailResponse from(NewsDocument doc) {
-        NewsDocument.Summary summary = doc.getSummary();
-
-        String oneLineSummary = null;
-        List<String> marketEvents = List.of();
-        String marketSentiment = null;
-
-        if (summary != null) {
-            oneLineSummary  = summary.getOneLineSummary();
-            marketSentiment = summary.getMarketSentiment();
-            marketEvents    = summary.getMarketEvent() != null ? summary.getMarketEvent() : List.of();
-        }
+        NewsSummaryParser.ParsedSummary summary = NewsSummaryParser.parse(doc.getSummary());
 
         return new NewsDetailResponse(
                 doc.getNewsId(),
                 doc.getTitle(),
                 doc.getContent(),
-                oneLineSummary,
-                marketEvents,
-                marketSentiment,
+                summary.oneLineSummary(),
+                summary.marketEvents(),
+                summary.marketSentiment(),
                 doc.getSource(),
                 doc.getStockIndex(),
                 doc.getPublishedAt() != null
